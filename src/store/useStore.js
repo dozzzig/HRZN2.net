@@ -47,8 +47,8 @@ export const useStore = create((set, get) => ({
     set({ isTgLinked: true });
   },
 
-  setSubscription: (isPaid, vlessKey) => {
-    set({ isPaid, vlessKey });
+  setSubscription: (isPaid, vlessKey, expiresIn = null) => {
+    set({ isPaid, vlessKey, subscription: { expiresIn } });
   },
 
   // Заглушка: запрос к промежуточному бэкенду
