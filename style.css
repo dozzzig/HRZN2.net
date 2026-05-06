@@ -1,0 +1,25 @@
+/* СТИЛИ ДЛЯ КАСТОМНЫХ МОДАЛОК */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  backdrop-filter: blur(10px); z-index: 3000;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none; transition: 0.3s;
+}
+.modal-overlay.active { opacity: 1; pointer-events: all; }
+
+.modal-box {
+  background: var(--glass); border: 1px solid var(--border);
+  border-radius: 40px; padding: 3.5rem; max-width: 500px; width: 90%;
+  text-align: center; transform: scale(0.8); transition: 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+.modal-overlay.active .modal-box { transform: scale(1); }
+
+.modal-title { font-weight: 950; font-size: 1.8rem; margin-bottom: 1.5rem; color: var(--accent); }
+.modal-text { font-size: 1.1rem; color: var(--text-primary); margin-bottom: 2.5rem; line-height: 1.6; }
+
+.modal-actions { display: flex; gap: 1rem; justify-content: center; }
+.btn-secondary { 
+  padding: 1rem 2rem; border-radius: 18px; border: 1px solid var(--border);
+  background: none; color: var(--text-primary); font-weight: 700; cursor: pointer; transition: 0.3s;
+}
+.btn-secondary:hover { background: rgba(255,255,255,0.1); }
