@@ -1,15 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { CreditCard, Coins, Apple, Smartphone, Monitor } from 'lucide-react';
 import { useStore } from '../store/useStore';
 import DashboardDrawer from '../components/DashboardDrawer';
+import { fetchVpnKey } from '../services/vpnApi';
 
 export default function Landing() {
-  const { hasAgreed, setHasAgreed, setSubscription } = useStore();
+  const { hasAgreed, setHasAgreed, setSubscription, deviceId } = useStore();
   const [isChecked, setIsChecked] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   
   // Состояния для модального окна правил
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [paymentPlan, setPaymentPlan] = useState(null); // '90_DAYS', '6_MONTHS', '12_MONTHS'
+  const [activeTab, setActiveTab] = useState('ios'); // 'ios', 'android', 'pc'
   const [isScrolledToBottom, setIsScrolledToBottom] = useState(false);
   const scrollRef = useRef(null);
 
@@ -36,10 +40,30 @@ export default function Landing() {
     setIsModalOpen(false);
   };
 
-  const handleMockPayment = (plan) => {
-    const mockKey = `vless://mock-uuid-key@hrzn2.network:443?type=tcp&security=reality&pbk=mock_pbk&sni=hrzn2.network&fp=chrome#HRZN2-${plan}`;
-    setSubscription(true, mockKey);
-    setIsDrawerOpen(true);
+  const handleMockPayment = async (plan) => {
+    // Демо-режим без окна оплаты
+    const response = await fetchVpnKey(deviceId, plan);
+    if (response.success) {
+      setSubscription(true, response.key, plan);
+      setPaymentPlan(null); // Закрываем модалку оплаты
+      setIsDrawerOpen(true);
+    }
+  };
+
+  // LavaTop: единая ссылка для всех платных тарифов
+  const LAVATOP_URL = 'https://app.lava.top/products/1f4388f3-acac-4ee7-8d08-a9048128705e';
+
+  const handleDevSuccess = async () => {
+    const response = await fetchVpnKey(deviceId, paymentPlan);
+    if (response.success) {
+      setSubscription(true, response.key, paymentPlan);
+      setPaymentPlan(null);
+      setIsDrawerOpen(true);
+    }
+  };
+
+  const openPaymentModal = (plan) => {
+    setPaymentPlan(plan);
   };
 
   // --- ЭКРАН-ШЛЮЗ (GATE) ---
@@ -242,24 +266,31 @@ export default function Landing() {
             <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'white', fontWeight: 800 }}>Демо-режим</h3>
             <p style={{ color: '#94a3b8', marginBottom: '2rem', flex: 1, fontSize: '0.95rem' }}>Доступ для проверки или перехода в Telegram-бот.</p>
             <div style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '1.5rem', color: 'white' }}>0 ₽</div>
+            {/* Демо: не открываем модалку, сразу выдаём ключ */}
             <button onClick={() => handleMockPayment('DEMO')} style={{ width: '100%', padding: '14px', borderRadius: '12px', background: '#1e293b', color: 'white', border: 'none', fontWeight: 800, cursor: 'pointer', transition: 'background 0.2s' }}>Попробовать</button>
           </div>
 
-          {/* 3 Months */}
+          {/* 30 Days */}
           <div style={{ background: '#0f172a', border: '1px solid #22d3ee', borderRadius: '24px', padding: '2rem', position: 'relative', display: 'flex', flexDirection: 'column', boxShadow: '0 0 30px rgba(34, 211, 238, 0.1)', transform: 'scale(1.02)' }}>
             <div style={{ position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)', background: '#22d3ee', color: '#0a0a0c', padding: '6px 16px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '1px' }}>Рекомендуем</div>
-            <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'white', fontWeight: 800 }}>90 дней</h3>
-            <p style={{ color: '#94a3b8', marginBottom: '2rem', flex: 1, fontSize: '0.95rem' }}>Идеальный баланс цены и длительности подписки.</p>
-            <div style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '1.5rem', color: 'white' }}>290 ₽ <span style={{ fontSize: '1rem', color: '#64748b', fontWeight: 600 }}>/мес</span></div>
-            <button onClick={() => handleMockPayment('90_DAYS')} style={{ width: '100%', padding: '14px', borderRadius: '12px', background: '#22d3ee', color: '#0a0a0c', border: 'none', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 15px rgba(34, 211, 238, 0.3)' }}>Выбрать</button>
+            <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'white', fontWeight: 800 }}>30 дней</h3>
+            <p style={{ color: '#94a3b8', marginBottom: '2rem', flex: 1, fontSize: '0.95rem' }}>Отличный старт для новых пользователей.</p>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <span style={{ fontSize: '2.5rem', fontWeight: 900, color: 'white' }}>100 ₽</span>
+              <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '4px' }}>единоразовый платёж за весь период</div>
+            </div>
+            <button onClick={() => openPaymentModal('30_DAYS')} style={{ width: '100%', padding: '14px', borderRadius: '12px', background: '#22d3ee', color: '#0a0a0c', border: 'none', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 15px rgba(34, 211, 238, 0.3)' }}>Выбрать</button>
           </div>
 
           {/* 6 Months */}
           <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '24px', padding: '2rem', display: 'flex', flexDirection: 'column' }}>
             <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'white', fontWeight: 800 }}>6 месяцев</h3>
             <p style={{ color: '#94a3b8', marginBottom: '2rem', flex: 1, fontSize: '0.95rem' }}>Долгосрочная уверенность и стабильный доступ.</p>
-            <div style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '1.5rem', color: 'white' }}>250 ₽ <span style={{ fontSize: '1rem', color: '#64748b', fontWeight: 600 }}>/мес</span></div>
-            <button onClick={() => handleMockPayment('6_MONTHS')} style={{ width: '100%', padding: '14px', borderRadius: '12px', background: '#1e293b', color: 'white', border: 'none', fontWeight: 800, cursor: 'pointer' }}>Выбрать</button>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <span style={{ fontSize: '2.5rem', fontWeight: 900, color: 'white' }}>600 ₽</span>
+              <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '4px' }}>единоразовый платёж за весь период</div>
+            </div>
+            <button onClick={() => openPaymentModal('6_MONTHS')} style={{ width: '100%', padding: '14px', borderRadius: '12px', background: '#1e293b', color: 'white', border: 'none', fontWeight: 800, cursor: 'pointer' }}>Выбрать</button>
           </div>
 
           {/* 12 Months */}
@@ -267,61 +298,218 @@ export default function Landing() {
             <div style={{ position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)', background: '#a855f7', color: 'white', padding: '6px 16px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '1px' }}>Выгодно</div>
             <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'white', fontWeight: 800 }}>12 месяцев</h3>
             <p style={{ color: '#94a3b8', marginBottom: '2rem', flex: 1, fontSize: '0.95rem' }}>Максимальная экономия на год вперед.</p>
-            <div style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '1.5rem', color: 'white' }}>190 ₽ <span style={{ fontSize: '1rem', color: '#64748b', fontWeight: 600 }}>/мес</span></div>
-            <button onClick={() => handleMockPayment('12_MONTHS')} style={{ width: '100%', padding: '14px', borderRadius: '12px', background: '#a855f7', color: 'white', border: 'none', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 15px rgba(168, 85, 247, 0.3)' }}>Выбрать</button>
+            <div style={{ marginBottom: '1.5rem' }}>
+              <span style={{ fontSize: '2.5rem', fontWeight: 900, color: 'white' }}>1 220 ₽</span>
+              <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '4px' }}>единоразовый платёж за весь период</div>
+              <div style={{ display: 'inline-block', marginTop: '8px', padding: '4px 12px', borderRadius: '20px', background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.4)', fontSize: '0.78rem', fontWeight: 700, color: '#c084fc' }}>
+                🎁 + 1 месяц в подарок
+              </div>
+            </div>
+            <button onClick={() => openPaymentModal('12_MONTHS')} style={{ width: '100%', padding: '14px', borderRadius: '12px', background: '#a855f7', color: 'white', border: 'none', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 15px rgba(168, 85, 247, 0.3)' }}>Выбрать</button>
           </div>
 
         </div>
       </section>
 
       {/* INSTRUCTIONS SECTION */}
-      <section id="instructions" style={{ padding: '80px 2rem', maxWidth: '1000px', margin: '0 auto', textAlign: 'center', scrollMarginTop: '80px' }}>
-        <h2 style={{ fontSize: 'clamp(2rem, 5vw, 2.5rem)', marginBottom: '1rem', fontWeight: 900 }}>Как <span style={{ color: '#22d3ee' }}>подключиться?</span></h2>
-        <p style={{ color: '#94a3b8', marginBottom: '3.5rem', fontSize: '1.15rem' }}>Всего три простых шага к свободному интернету.</p>
+      <section id="instructions" style={{ padding: '80px 2rem', maxWidth: '800px', margin: '0 auto', scrollMarginTop: '80px' }}>
+        <h2 style={{ fontSize: 'clamp(2rem, 5vw, 2.5rem)', marginBottom: '3rem', fontWeight: 900, textAlign: 'center' }}>
+          Настройка в <span style={{ color: '#22d3ee' }}>3 клика</span>
+        </h2>
         
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '2rem' }}>
-          <div style={{ background: 'rgba(15, 23, 42, 0.5)', padding: '2.5rem 1.5rem', borderRadius: '24px', border: '1px solid #1e293b' }}>
-            <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(168, 85, 247, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', fontSize: '1.5rem', fontWeight: 800, color: '#a855f7' }}>1</div>
-            <h4 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: 'white', fontWeight: 800 }}>Выберите тариф</h4>
-            <p style={{ color: '#64748b', fontSize: '0.95rem', lineHeight: 1.5 }}>Оформите подписку или возьмите бесплатный демо-доступ.</p>
-          </div>
-          <div style={{ background: 'rgba(15, 23, 42, 0.5)', padding: '2.5rem 1.5rem', borderRadius: '24px', border: '1px solid #1e293b' }}>
-            <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', fontSize: '1.5rem', fontWeight: 800, color: '#22d3ee' }}>2</div>
-            <h4 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: 'white', fontWeight: 800 }}>Скачайте клиент</h4>
-            <p style={{ color: '#64748b', fontSize: '0.95rem', lineHeight: 1.5 }}>Установите приложение для iOS, Android, macOS или Windows.</p>
-          </div>
-          <div style={{ background: 'rgba(15, 23, 42, 0.5)', padding: '2.5rem 1.5rem', borderRadius: '24px', border: '1px solid #1e293b' }}>
-            <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: 'rgba(168, 85, 247, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 1.5rem', fontSize: '1.5rem', fontWeight: 800, color: '#a855f7' }}>3</div>
-            <h4 style={{ fontSize: '1.25rem', marginBottom: '0.5rem', color: 'white', fontWeight: 800 }}>Вставьте ключ</h4>
-            <p style={{ color: '#64748b', fontSize: '0.95rem', lineHeight: 1.5 }}>Скопируйте ваш VLESS-ключ из Личного кабинета и добавьте в клиент.</p>
-          </div>
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '2.5rem', flexWrap: 'wrap' }}>
+          <button 
+            onClick={() => setActiveTab('ios')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', borderRadius: '16px', background: activeTab === 'ios' ? 'rgba(34, 211, 238, 0.15)' : '#0f172a', border: `1px solid ${activeTab === 'ios' ? '#22d3ee' : '#1e293b'}`, color: activeTab === 'ios' ? '#22d3ee' : '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
+          >
+            <Apple size={20} /> Apple iOS
+          </button>
+          <button 
+            onClick={() => setActiveTab('android')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', borderRadius: '16px', background: activeTab === 'android' ? 'rgba(168, 85, 247, 0.15)' : '#0f172a', border: `1px solid ${activeTab === 'android' ? '#a855f7' : '#1e293b'}`, color: activeTab === 'android' ? '#a855f7' : '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
+          >
+            <Smartphone size={20} /> Android
+          </button>
+          <button 
+            onClick={() => setActiveTab('pc')}
+            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', borderRadius: '16px', background: activeTab === 'pc' ? 'rgba(34, 211, 238, 0.15)' : '#0f172a', border: `1px solid ${activeTab === 'pc' ? '#22d3ee' : '#1e293b'}`, color: activeTab === 'pc' ? '#22d3ee' : '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
+          >
+            <Monitor size={20} /> Windows / Mac
+          </button>
+        </div>
+
+        <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '24px', padding: '2.5rem', minHeight: '300px' }}>
+          <AnimatePresence mode="wait">
+            {activeTab === 'ios' && (
+              <motion.div key="ios" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>1</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Установите приложение</strong> Happ Proxy.</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>2</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Скопируйте ваш ключ</strong> из Личного кабинета.</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>3</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Откройте приложение</strong>, нажмите «+» → «Импорт из буфера обмена» и нажмите Start.</div>
+                  </div>
+                </div>
+                <div style={{ marginTop: '2.5rem', display: 'flex', justifyContent: 'center' }}>
+                  <a href="https://apps.apple.com/us/app/happ-proxy-utility/id6504287215?l=ru" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'white', color: 'black', padding: '12px 24px', borderRadius: '12px', textDecoration: 'none', fontWeight: 700 }}>
+                    <Apple size={20} /> Скачать в App Store
+                  </a>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'android' && (
+              <motion.div key="android" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>1</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Установите приложение</strong> Happ Proxy.</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>2</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Скопируйте ваш ключ</strong> из Личного кабинета.</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>3</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Откройте приложение</strong>, нажмите «+» → «Импорт профиля из буфера обмена» и нажмите иконку подключения.</div>
+                  </div>
+                </div>
+                <div style={{ marginTop: '2.5rem', display: 'flex', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                  <a href="https://play.google.com/store/apps/details?id=com.happproxy&hl=ru" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#22c55e', color: 'white', padding: '12px 24px', borderRadius: '12px', textDecoration: 'none', fontWeight: 700 }}>
+                    <Smartphone size={20} /> Скачать в Google Play
+                  </a>
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === 'pc' && (
+              <motion.div key="pc" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
+                <p style={{ color: '#94a3b8', marginBottom: '2rem', textAlign: 'center', fontSize: '1.05rem' }}>Для <strong>Windows</strong> скачайте v2rayN, для <strong>macOS</strong> используйте V2RayXS или Vfox.</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '500px', margin: '0 auto' }}>
+                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>1</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Добавьте скопированный ключ</strong> через меню серверов.</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>2</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Включите системный прокси</strong>.</div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </section>
 
-      {/* SUPPORT SECTION */}
-      <section id="support" style={{ padding: '80px 2rem', background: '#0f172a', borderTop: '1px solid #1e293b', textAlign: 'center', scrollMarginTop: '80px' }}>
-        <h2 style={{ fontSize: '2.5rem', marginBottom: '1.5rem', fontWeight: 900 }}>Остались вопросы?</h2>
-        <p style={{ color: '#94a3b8', marginBottom: '2.5rem', fontSize: '1.15rem', maxWidth: '600px', margin: '0 auto 2.5rem', lineHeight: 1.6 }}>Наша поддержка решит их за 5 минут. Поможем с настройкой, оплатой или любыми другими техническими проблемами.</p>
-        <a 
-          href="tg://resolve?domain=your_support_account" 
-          style={{
-            display: 'inline-block', padding: '18px 36px', borderRadius: '14px',
-            background: '#22d3ee', color: '#0a0a0c', textDecoration: 'none',
-            fontSize: '1.1rem', fontWeight: 800, transition: 'all 0.2s', boxShadow: '0 10px 25px -5px rgba(34, 211, 238, 0.4)'
-          }}
-        >
-          Написать в Telegram
-        </a>
-      </section>
+      {/* FOOTER & SUPPORT */}
+      <footer style={{ background: '#0a0a0c', borderTop: '1px solid #1e293b', paddingTop: '4rem', paddingBottom: '2rem', marginTop: '4rem' }}>
+        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2rem' }}>
+          
+          <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'white', marginBottom: '0.5rem' }}>Остались вопросы?</h3>
+            <p style={{ color: '#64748b', marginBottom: '1.5rem' }}>Наша поддержка решит их за 5 минут.</p>
+            <a 
+              href="tg://resolve?domain=your_support_account" 
+              target="_blank" rel="noopener noreferrer"
+              style={{
+                display: 'inline-block', padding: '12px 28px', borderRadius: '12px',
+                background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', border: '1px solid rgba(34, 211, 238, 0.3)',
+                textDecoration: 'none', fontWeight: 700, transition: 'all 0.2s'
+              }}
+            >
+              Написать в поддержку
+            </a>
+          </div>
 
-      {/* FOOTER */}
-      <footer style={{ padding: '3rem 2rem', textAlign: 'center', borderTop: '1px solid #1e293b', color: '#64748b', fontSize: '0.95rem', background: '#0a0a0c' }}>
-        <div style={{ fontWeight: 800, color: '#94a3b8', marginBottom: '1rem', letterSpacing: '1px' }}>HRZN2 NETWORK</div>
-        © {new Date().getFullYear()} Все права защищены.
+          <div style={{ width: '100%', height: '1px', background: '#1e293b' }}></div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', width: '100%' }}>
+            <div style={{ fontWeight: 900, color: '#94a3b8', letterSpacing: '2px', fontSize: '1.2rem' }}>HRZN2 <span style={{ color: '#22d3ee' }}>NETWORK</span></div>
+            <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+              <button onClick={() => setIsModalOpen(true)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', textDecoration: 'underline', fontSize: '0.9rem' }}>Пользовательское соглашение и Политика конфиденциальности</button>
+            </div>
+            <div style={{ color: '#475569', fontSize: '0.85rem', marginTop: '1rem' }}>
+              © {new Date().getFullYear()} HRZN2 Network. Все права защищены.
+            </div>
+          </div>
+        </div>
       </footer>
 
       {/* DRAWER OVERLAY (Личный Кабинет) */}
       <DashboardDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
+
+      {/* PAYMENT METHOD MODAL */}
+      <AnimatePresence>
+        {paymentPlan && (
+          <motion.div 
+            key="payment-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setPaymentPlan(null)}
+            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(8px)', zIndex: 60, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '1rem' }}
+          >
+            <motion.div 
+              initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} onClick={(e) => e.stopPropagation()}
+              style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '24px', width: '100%', maxWidth: '400px', padding: '2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}
+            >
+              <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'white', marginBottom: '0.5rem' }}>Способ оплаты</h3>
+              <p style={{ color: '#94a3b8', fontSize: '0.95rem', marginBottom: '2rem', textAlign: 'center' }}>Выберите удобный для вас метод оплаты. Доступ выдается автоматически.</p>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
+                <a 
+                  href={LAVATOP_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    width: '100%', padding: '16px', borderRadius: '16px', border: '1px solid rgba(34, 211, 238, 0.5)',
+                    background: 'rgba(34, 211, 238, 0.1)', color: 'white', fontSize: '1.1rem', fontWeight: 700,
+                    cursor: 'pointer', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
+                    boxShadow: '0 0 15px rgba(34, 211, 238, 0.2)', textDecoration: 'none', boxSizing: 'border-box'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(34, 211, 238, 0.2)'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(34, 211, 238, 0.1)'}
+                >
+                  <CreditCard size={24} color="#22d3ee" /> Оплатить картой РФ
+                </a>
+                
+                <button 
+                  onClick={() => {}} // Заглушка для крипты
+                  style={{
+                    width: '100%', padding: '16px', borderRadius: '16px', border: '1px solid rgba(168, 85, 247, 0.3)',
+                    background: 'rgba(168, 85, 247, 0.1)', color: 'white', fontSize: '1.1rem', fontWeight: 700,
+                    cursor: 'pointer', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px'
+                  }}
+                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(168, 85, 247, 0.2)'}
+                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(168, 85, 247, 0.1)'}
+                >
+                  <Coins size={24} color="#a855f7" /> Криптовалюта (USDT / TON)
+                </button>
+              </div>
+
+              <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
+                <button 
+                  onClick={() => setPaymentPlan(null)}
+                  style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '0.9rem', textDecoration: 'underline' }}
+                >
+                  Отмена
+                </button>
+
+                <button 
+                  onClick={handleDevSuccess}
+                  style={{ background: 'transparent', border: 'none', color: '#475569', cursor: 'pointer', fontSize: '0.75rem', marginTop: '1rem', transition: 'color 0.2s' }}
+                  onMouseOver={(e) => e.currentTarget.style.color = '#94a3b8'}
+                  onMouseOut={(e) => e.currentTarget.style.color = '#475569'}
+                >
+                  Dev: Имитировать успешный возврат
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
