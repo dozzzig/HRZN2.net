@@ -1,21 +1,66 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CreditCard, Coins, Apple, Smartphone, Monitor } from 'lucide-react';
+import { Apple, Smartphone, Monitor, Copy, Check } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import DashboardDrawer from '../components/DashboardDrawer';
 import { fetchVpnKey } from '../services/vpnApi';
 
 export default function Landing() {
-  const { hasAgreed, setHasAgreed, setSubscription, deviceId } = useStore();
+  const { hasAgreed, setHasAgreed, deviceId } = useStore();
   const [isChecked, setIsChecked] = useState(false);
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   
   // Состояния для модального окна правил
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [paymentPlan, setPaymentPlan] = useState(null); // '90_DAYS', '6_MONTHS', '12_MONTHS'
-  const [activeTab, setActiveTab] = useState('ios'); // 'ios', 'android', 'pc'
+  const [activeTab, setActiveTab] = useState('ios');
   const [isScrolledToBottom, setIsScrolledToBottom] = useState(false);
   const scrollRef = useRef(null);
+
+  // Состояния для выдачи ключа
+  const [keyStatus, setKeyStatus] = useState('NONE'); // 'NONE', 'ACTIVE', 'EXPIRED'
+  const [demoKey, setDemoKey] = useState('');
+  const [isCopied, setIsCopied] = useState(false);
+  
+  const DUMMY_KEY = "vless://stub_key_777_for_demo@vpn.hrzn2.net:443?security=reality&sni=google.com&type=tcp#HRZN2_Trial";
+  const TIME_LIMIT = 15 * 60 * 1000; // 15 минут
+
+  useEffect(() => {
+    const savedKey = localStorage.getItem('hrzn2_demo_key');
+    const savedTime = localStorage.getItem('hrzn2_demo_timestamp');
+
+    if (savedKey && savedTime) {
+      const timeElapsed = Date.now() - parseInt(savedTime, 10);
+      if (timeElapsed < TIME_LIMIT) {
+        setDemoKey(savedKey);
+        setKeyStatus('ACTIVE');
+      } else {
+        setKeyStatus('EXPIRED');
+      }
+    }
+    
+    // Периодическая проверка таймера, если ключ ACTIVE
+    const interval = setInterval(() => {
+      const currentTime = localStorage.getItem('hrzn2_demo_timestamp');
+      if (currentTime && keyStatus === 'ACTIVE') {
+        if (Date.now() - parseInt(currentTime, 10) >= TIME_LIMIT) {
+          setKeyStatus('EXPIRED');
+        }
+      }
+    }, 10000);
+
+    return () => clearInterval(interval);
+  }, [keyStatus]);
+
+  const handleGenerateKey = () => {
+    localStorage.setItem('hrzn2_demo_key', DUMMY_KEY);
+    localStorage.setItem('hrzn2_demo_timestamp', Date.now().toString());
+    setDemoKey(DUMMY_KEY);
+    setKeyStatus('ACTIVE');
+  };
+
+  const handleCopyKey = () => {
+    navigator.clipboard.writeText(demoKey || DUMMY_KEY);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
 
   // Обработчик скролла в модальном окне
   const handleScroll = (e) => {
@@ -38,32 +83,6 @@ export default function Landing() {
   const handleAcceptRules = () => {
     setIsChecked(true);
     setIsModalOpen(false);
-  };
-
-  const handleMockPayment = async (plan) => {
-    // Демо-режим без окна оплаты
-    const response = await fetchVpnKey(deviceId, plan);
-    if (response.success) {
-      setSubscription(true, response.key, plan);
-      setPaymentPlan(null); // Закрываем модалку оплаты
-      setIsDrawerOpen(true);
-    }
-  };
-
-  // LavaTop: единая ссылка для всех платных тарифов
-  const LAVATOP_URL = 'https://app.lava.top/products/1f4388f3-acac-4ee7-8d08-a9048128705e';
-
-  const handleDevSuccess = async () => {
-    const response = await fetchVpnKey(deviceId, paymentPlan);
-    if (response.success) {
-      setSubscription(true, response.key, paymentPlan);
-      setPaymentPlan(null);
-      setIsDrawerOpen(true);
-    }
-  };
-
-  const openPaymentModal = (plan) => {
-    setPaymentPlan(plan);
   };
 
   // --- ЭКРАН-ШЛЮЗ (GATE) ---
@@ -210,20 +229,9 @@ export default function Landing() {
         </nav>
         <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
           <div style={{ display: 'flex', gap: '1.5rem' }} className="desktop-nav">
-            <a href="#tariffs" style={{ color: '#cbd5e1', textDecoration: 'none', fontWeight: 500, transition: 'color 0.2s' }}>Тарифы</a>
             <a href="#instructions" style={{ color: '#cbd5e1', textDecoration: 'none', fontWeight: 500, transition: 'color 0.2s' }}>Инструкции</a>
             <a href="#support" style={{ color: '#cbd5e1', textDecoration: 'none', fontWeight: 500, transition: 'color 0.2s' }}>Поддержка</a>
           </div>
-          <button 
-            onClick={() => setIsDrawerOpen(true)}
-            style={{
-              padding: '10px 20px', borderRadius: '10px', border: '1px solid rgba(168, 85, 247, 0.5)',
-              background: 'rgba(168, 85, 247, 0.1)', color: '#e9d5ff', fontWeight: 700,
-              cursor: 'pointer', transition: 'all 0.2s', boxShadow: '0 0 15px rgba(168, 85, 247, 0.2)'
-            }}
-          >
-            Личный кабинет
-          </button>
         </div>
       </header>
 
@@ -240,7 +248,7 @@ export default function Landing() {
           </p>
           <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
             <button 
-              onClick={() => document.getElementById('tariffs').scrollIntoView({ behavior: 'smooth' })}
+              onClick={() => document.getElementById('instructions').scrollIntoView({ behavior: 'smooth' })}
               style={{
                 padding: '16px 36px', borderRadius: '12px', border: 'none',
                 background: 'linear-gradient(to right, #06b6d4, #9333ea)', color: 'white',
@@ -251,64 +259,6 @@ export default function Landing() {
             </button>
           </div>
         </motion.div>
-      </section>
-
-      {/* TARIFFS SECTION */}
-      <section id="tariffs" style={{ padding: '80px 2rem', maxWidth: '1200px', margin: '0 auto', scrollMarginTop: '80px' }}>
-        <h2 style={{ fontSize: 'clamp(2rem, 5vw, 2.5rem)', textAlign: 'center', marginBottom: '3rem', fontWeight: 900 }}>
-          Выбор <span style={{ color: '#a855f7' }}>доступа</span>
-        </h2>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '1.5rem' }}>
-          
-          {/* Demo */}
-          <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '24px', padding: '2rem', display: 'flex', flexDirection: 'column', transition: 'transform 0.3s' }}>
-            <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'white', fontWeight: 800 }}>Демо-режим</h3>
-            <p style={{ color: '#94a3b8', marginBottom: '2rem', flex: 1, fontSize: '0.95rem' }}>Доступ для проверки или перехода в Telegram-бот.</p>
-            <div style={{ fontSize: '2.5rem', fontWeight: 900, marginBottom: '1.5rem', color: 'white' }}>0 ₽</div>
-            {/* Демо: не открываем модалку, сразу выдаём ключ */}
-            <button onClick={() => handleMockPayment('DEMO')} style={{ width: '100%', padding: '14px', borderRadius: '12px', background: '#1e293b', color: 'white', border: 'none', fontWeight: 800, cursor: 'pointer', transition: 'background 0.2s' }}>Попробовать</button>
-          </div>
-
-          {/* 30 Days */}
-          <div style={{ background: '#0f172a', border: '1px solid #22d3ee', borderRadius: '24px', padding: '2rem', position: 'relative', display: 'flex', flexDirection: 'column', boxShadow: '0 0 30px rgba(34, 211, 238, 0.1)', transform: 'scale(1.02)' }}>
-            <div style={{ position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)', background: '#22d3ee', color: '#0a0a0c', padding: '6px 16px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '1px' }}>Рекомендуем</div>
-            <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'white', fontWeight: 800 }}>30 дней</h3>
-            <p style={{ color: '#94a3b8', marginBottom: '2rem', flex: 1, fontSize: '0.95rem' }}>Отличный старт для новых пользователей.</p>
-            <div style={{ marginBottom: '1.5rem' }}>
-              <span style={{ fontSize: '2.5rem', fontWeight: 900, color: 'white' }}>100 ₽</span>
-              <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '4px' }}>единоразовый платёж за весь период</div>
-            </div>
-            <button onClick={() => openPaymentModal('30_DAYS')} style={{ width: '100%', padding: '14px', borderRadius: '12px', background: '#22d3ee', color: '#0a0a0c', border: 'none', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 15px rgba(34, 211, 238, 0.3)' }}>Выбрать</button>
-          </div>
-
-          {/* 6 Months */}
-          <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '24px', padding: '2rem', display: 'flex', flexDirection: 'column' }}>
-            <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'white', fontWeight: 800 }}>6 месяцев</h3>
-            <p style={{ color: '#94a3b8', marginBottom: '2rem', flex: 1, fontSize: '0.95rem' }}>Долгосрочная уверенность и стабильный доступ.</p>
-            <div style={{ marginBottom: '1.5rem' }}>
-              <span style={{ fontSize: '2.5rem', fontWeight: 900, color: 'white' }}>600 ₽</span>
-              <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '4px' }}>единоразовый платёж за весь период</div>
-            </div>
-            <button onClick={() => openPaymentModal('6_MONTHS')} style={{ width: '100%', padding: '14px', borderRadius: '12px', background: '#1e293b', color: 'white', border: 'none', fontWeight: 800, cursor: 'pointer' }}>Выбрать</button>
-          </div>
-
-          {/* 12 Months */}
-          <div style={{ background: '#0f172a', border: '1px solid #a855f7', borderRadius: '24px', padding: '2rem', position: 'relative', display: 'flex', flexDirection: 'column', boxShadow: '0 0 30px rgba(168, 85, 247, 0.1)' }}>
-            <div style={{ position: 'absolute', top: '-14px', left: '50%', transform: 'translateX(-50%)', background: '#a855f7', color: 'white', padding: '6px 16px', borderRadius: '20px', fontSize: '0.8rem', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '1px' }}>Выгодно</div>
-            <h3 style={{ fontSize: '1.5rem', marginBottom: '1rem', color: 'white', fontWeight: 800 }}>12 месяцев</h3>
-            <p style={{ color: '#94a3b8', marginBottom: '2rem', flex: 1, fontSize: '0.95rem' }}>Максимальная экономия на год вперед.</p>
-            <div style={{ marginBottom: '1.5rem' }}>
-              <span style={{ fontSize: '2.5rem', fontWeight: 900, color: 'white' }}>1 220 ₽</span>
-              <div style={{ fontSize: '0.8rem', color: '#475569', marginTop: '4px' }}>единоразовый платёж за весь период</div>
-              <div style={{ display: 'inline-block', marginTop: '8px', padding: '4px 12px', borderRadius: '20px', background: 'rgba(168, 85, 247, 0.15)', border: '1px solid rgba(168, 85, 247, 0.4)', fontSize: '0.78rem', fontWeight: 700, color: '#c084fc' }}>
-                🎁 + 1 месяц в подарок
-              </div>
-            </div>
-            <button onClick={() => openPaymentModal('12_MONTHS')} style={{ width: '100%', padding: '14px', borderRadius: '12px', background: '#a855f7', color: 'white', border: 'none', fontWeight: 800, cursor: 'pointer', boxShadow: '0 4px 15px rgba(168, 85, 247, 0.3)' }}>Выбрать</button>
-          </div>
-
-        </div>
       </section>
 
       {/* INSTRUCTIONS SECTION */}
@@ -349,11 +299,11 @@ export default function Landing() {
                   </div>
                   <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>2</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Скопируйте ваш ключ</strong> из Личного кабинета.</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Нажмите кнопку внизу</strong>, чтобы получить стартовый 15-минутный ключ, и скопируйте его.</div>
                   </div>
                   <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>3</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Откройте приложение</strong>, нажмите «+» → «Импорт из буфера обмена» и нажмите Start.</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Вставьте ключ в приложение</strong> и подключитесь. Как только будете в свободной сети, вернитесь сюда и перейдите в Telegram для активации подписки.</div>
                   </div>
                 </div>
                 <div style={{ marginTop: '2.5rem', display: 'flex', justifyContent: 'center' }}>
@@ -373,11 +323,11 @@ export default function Landing() {
                   </div>
                   <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>2</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Скопируйте ваш ключ</strong> из Личного кабинета.</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Нажмите кнопку внизу</strong>, чтобы получить стартовый 15-минутный ключ, и скопируйте его.</div>
                   </div>
                   <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>3</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Откройте приложение</strong>, нажмите «+» → «Импорт профиля из буфера обмена» и нажмите иконку подключения.</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Вставьте ключ в приложение</strong> и подключитесь. Как только будете в свободной сети, вернитесь сюда и перейдите в Telegram для активации подписки.</div>
                   </div>
                 </div>
                 <div style={{ marginTop: '2.5rem', display: 'flex', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
@@ -394,11 +344,15 @@ export default function Landing() {
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '500px', margin: '0 auto' }}>
                   <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>1</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Добавьте скопированный ключ</strong> через меню серверов.</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Установите приложение</strong> для вашей платформы (Windows или Mac).</div>
                   </div>
                   <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
                     <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>2</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Включите системный прокси</strong>.</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Нажмите кнопку внизу</strong>, чтобы получить стартовый 15-минутный ключ, и скопируйте его.</div>
+                  </div>
+                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
+                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>3</div>
+                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Вставьте ключ в приложение</strong> и подключитесь. Как только будете в свободной сети, вернитесь сюда и перейдите в Telegram для активации подписки.</div>
                   </div>
                 </div>
               </motion.div>
@@ -406,8 +360,106 @@ export default function Landing() {
           </AnimatePresence>
         </div>
       </section>
+      {/* CALL TO ACTION SECTION */}
+      <section id="get-key" style={{ padding: '40px 2rem 80px', maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
+        <div style={{ background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(147, 51, 234, 0.1))', border: '1px solid rgba(168, 85, 247, 0.3)', borderRadius: '24px', padding: '3rem 2rem', boxShadow: '0 10px 40px -10px rgba(168, 85, 247, 0.15)' }}>
+          <h2 style={{ fontSize: 'clamp(1.8rem, 4vw, 2.2rem)', fontWeight: 900, marginBottom: '1rem' }}>
+            Готовы к <span style={{ color: '#a855f7' }}>подключению?</span>
+          </h2>
+          
+          {keyStatus === 'NONE' && (
+            <>
+              <p style={{ color: '#cbd5e1', fontSize: '1.1rem', marginBottom: '2.5rem', maxWidth: '500px', margin: '0 auto 2.5rem' }}>
+                Сгенерируйте ваш стартовый ключ прямо сейчас. Это займет всего секунду.
+              </p>
+              <button 
+                onClick={handleGenerateKey}
+                style={{
+                  padding: '18px 40px', borderRadius: '16px', border: 'none',
+                  background: 'linear-gradient(to right, #06b6d4, #9333ea)', color: 'white',
+                  fontSize: '1.2rem', fontWeight: 800, cursor: 'pointer', boxShadow: '0 10px 25px -5px rgba(147, 51, 234, 0.5)', transition: 'transform 0.2s', width: '100%', maxWidth: '350px'
+                }}
+              >
+                Сгенерировать ключ доступа
+              </button>
+            </>
+          )}
 
-      {/* FOOTER & SUPPORT */}
+          {keyStatus === 'ACTIVE' && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: '450px', margin: '0 auto' }}>
+              <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem' }}>
+                <Check size={32} />
+              </div>
+              <h3 style={{ fontSize: '1.6rem', fontWeight: 900, color: 'white', marginBottom: '1rem', textAlign: 'center' }}>Ваш ключ готов!</h3>
+              
+              <div style={{ width: '100%', position: 'relative', marginBottom: '1.5rem' }}>
+                <input 
+                  type="text" value={demoKey} readOnly
+                  style={{ width: '100%', padding: '16px 50px 16px 16px', borderRadius: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid #1e293b', color: '#94a3b8', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box' }}
+                />
+                <button 
+                  onClick={handleCopyKey}
+                  style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: isCopied ? '#22c55e' : '#a855f7', cursor: 'pointer', padding: '8px' }}
+                >
+                  {isCopied ? <Check size={20} /> : <Copy size={20} />}
+                </button>
+              </div>
+
+              <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '12px', padding: '1rem', marginBottom: '2rem' }}>
+                <p style={{ color: '#fca5a5', fontSize: '0.9rem', lineHeight: 1.5, textAlign: 'center', margin: 0 }}>
+                  <strong>Внимание:</strong> Ключ работает 15 минут. Подключитесь в приложении, а затем нажмите кнопку ниже, чтобы оформить и активировать подписку.
+                </p>
+              </div>
+
+              <a 
+                href="https://t.me/HRZN2_bot"
+                target="_blank" rel="noopener noreferrer"
+                style={{
+                  width: '100%', padding: '16px', borderRadius: '16px', border: 'none',
+                  background: '#2481cc', color: 'white', fontSize: '1.1rem', fontWeight: 700,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', textDecoration: 'none', transition: 'background 0.2s'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = '#1d6fa5'}
+                onMouseOut={(e) => e.currentTarget.style.background = '#2481cc'}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM16.64 8.8C16.49 10.48 15.82 14.39 15.48 16.2C15.33 16.97 15.05 17.23 14.78 17.26C14.19 17.31 13.74 16.87 13.17 16.49C12.28 15.9 11.78 15.54 10.92 14.97C9.93 14.31 10.57 13.95 11.15 13.35C11.3 13.2 13.88 10.85 13.93 10.64C13.94 10.61 13.94 10.54 13.9 10.5C13.86 10.46 13.81 10.47 13.77 10.48C13.7 10.5 12.56 11.25 10.35 12.74C10.02 12.96 9.73 13.07 9.47 13.07C9.18 13.07 8.63 12.91 8.22 12.78C7.72 12.62 7.33 12.49 7.37 12.21C7.39 12.07 7.59 11.92 7.97 11.77C11.36 10.3 13.62 9.35 14.75 8.88C15.82 8.44 16.04 8.36 16.19 8.36C16.22 8.36 16.32 8.37 16.38 8.42C16.43 8.46 16.46 8.53 16.47 8.58C16.47 8.64 16.46 8.74 16.44 8.84L16.64 8.8Z" fill="white"/>
+                </svg>
+                Активировать подписку в Telegram
+              </a>
+            </div>
+          )}
+
+          {keyStatus === 'EXPIRED' && (
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: '450px', margin: '0 auto' }}>
+              <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '12px', padding: '1.5rem', marginBottom: '2rem', width: '100%' }}>
+                <p style={{ color: '#fca5a5', fontSize: '1.05rem', lineHeight: 1.5, textAlign: 'center', margin: 0, fontWeight: 500 }}>
+                  Ваш пробный период завершен. Для продолжения работы оформите подписку.
+                </p>
+              </div>
+
+              <a 
+                href="https://t.me/HRZN2_bot"
+                target="_blank" rel="noopener noreferrer"
+                style={{
+                  width: '100%', padding: '16px', borderRadius: '16px', border: 'none',
+                  background: '#2481cc', color: 'white', fontSize: '1.1rem', fontWeight: 700,
+                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', textDecoration: 'none', transition: 'background 0.2s'
+                }}
+                onMouseOver={(e) => e.currentTarget.style.background = '#1d6fa5'}
+                onMouseOut={(e) => e.currentTarget.style.background = '#2481cc'}
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM16.64 8.8C16.49 10.48 15.82 14.39 15.48 16.2C15.33 16.97 15.05 17.23 14.78 17.26C14.19 17.31 13.74 16.87 13.17 16.49C12.28 15.9 11.78 15.54 10.92 14.97C9.93 14.31 10.57 13.95 11.15 13.35C11.3 13.2 13.88 10.85 13.93 10.64C13.94 10.61 13.94 10.54 13.9 10.5C13.86 10.46 13.81 10.47 13.77 10.48C13.7 10.5 12.56 11.25 10.35 12.74C10.02 12.96 9.73 13.07 9.47 13.07C9.18 13.07 8.63 12.91 8.22 12.78C7.72 12.62 7.33 12.49 7.37 12.21C7.39 12.07 7.59 11.92 7.97 11.77C11.36 10.3 13.62 9.35 14.75 8.88C15.82 8.44 16.04 8.36 16.19 8.36C16.22 8.36 16.32 8.37 16.38 8.42C16.43 8.46 16.46 8.53 16.47 8.58C16.47 8.64 16.46 8.74 16.44 8.84L16.64 8.8Z" fill="white"/>
+                </svg>
+                Активировать подписку в Telegram
+              </a>
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* FOOTER & SUPPORT */}{/* FOOTER & SUPPORT */}
       <footer style={{ background: '#0a0a0c', borderTop: '1px solid #1e293b', paddingTop: '4rem', paddingBottom: '2rem', marginTop: '4rem' }}>
         <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2rem' }}>
           
@@ -440,76 +492,6 @@ export default function Landing() {
           </div>
         </div>
       </footer>
-
-      {/* DRAWER OVERLAY (Личный Кабинет) */}
-      <DashboardDrawer isOpen={isDrawerOpen} onClose={() => setIsDrawerOpen(false)} />
-
-      {/* PAYMENT METHOD MODAL */}
-      <AnimatePresence>
-        {paymentPlan && (
-          <motion.div 
-            key="payment-modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setPaymentPlan(null)}
-            style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(8px)', zIndex: 60, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '1rem' }}
-          >
-            <motion.div 
-              initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} onClick={(e) => e.stopPropagation()}
-              style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '24px', width: '100%', maxWidth: '400px', padding: '2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}
-            >
-              <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'white', marginBottom: '0.5rem' }}>Способ оплаты</h3>
-              <p style={{ color: '#94a3b8', fontSize: '0.95rem', marginBottom: '2rem', textAlign: 'center' }}>Выберите удобный для вас метод оплаты. Доступ выдается автоматически.</p>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', width: '100%' }}>
-                <a 
-                  href={LAVATOP_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    width: '100%', padding: '16px', borderRadius: '16px', border: '1px solid rgba(34, 211, 238, 0.5)',
-                    background: 'rgba(34, 211, 238, 0.1)', color: 'white', fontSize: '1.1rem', fontWeight: 700,
-                    cursor: 'pointer', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
-                    boxShadow: '0 0 15px rgba(34, 211, 238, 0.2)', textDecoration: 'none', boxSizing: 'border-box'
-                  }}
-                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(34, 211, 238, 0.2)'}
-                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(34, 211, 238, 0.1)'}
-                >
-                  <CreditCard size={24} color="#22d3ee" /> Оплатить картой РФ
-                </a>
-                
-                <button 
-                  onClick={() => {}} // Заглушка для крипты
-                  style={{
-                    width: '100%', padding: '16px', borderRadius: '16px', border: '1px solid rgba(168, 85, 247, 0.3)',
-                    background: 'rgba(168, 85, 247, 0.1)', color: 'white', fontSize: '1.1rem', fontWeight: 700,
-                    cursor: 'pointer', transition: 'all 0.2s ease', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px'
-                  }}
-                  onMouseOver={(e) => e.currentTarget.style.background = 'rgba(168, 85, 247, 0.2)'}
-                  onMouseOut={(e) => e.currentTarget.style.background = 'rgba(168, 85, 247, 0.1)'}
-                >
-                  <Coins size={24} color="#a855f7" /> Криптовалюта (USDT / TON)
-                </button>
-              </div>
-
-              <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.5rem' }}>
-                <button 
-                  onClick={() => setPaymentPlan(null)}
-                  style={{ background: 'transparent', border: 'none', color: '#64748b', cursor: 'pointer', fontSize: '0.9rem', textDecoration: 'underline' }}
-                >
-                  Отмена
-                </button>
-
-                <button 
-                  onClick={handleDevSuccess}
-                  style={{ background: 'transparent', border: 'none', color: '#475569', cursor: 'pointer', fontSize: '0.75rem', marginTop: '1rem', transition: 'color 0.2s' }}
-                  onMouseOver={(e) => e.currentTarget.style.color = '#94a3b8'}
-                  onMouseOut={(e) => e.currentTarget.style.color = '#475569'}
-                >
-                  Dev: Имитировать успешный возврат
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
