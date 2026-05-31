@@ -18,8 +18,8 @@ export default function Landing() {
   const [keyStatus, setKeyStatus] = useState('NONE'); // 'NONE', 'ACTIVE', 'EXPIRED'
   const [demoKey, setDemoKey] = useState('');
   const [isCopied, setIsCopied] = useState(false);
-  
-  const DUMMY_KEY = "vless://stub_key_777_for_demo@vpn.hrzn2.net:443?security=reality&sni=google.com&type=tcp#HRZN2_Trial";
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState(null);
   const TIME_LIMIT = 15 * 60 * 1000; // 15 минут
 
   useEffect(() => {
@@ -49,15 +49,33 @@ export default function Landing() {
     return () => clearInterval(interval);
   }, [keyStatus]);
 
-  const handleGenerateKey = () => {
-    localStorage.setItem('hrzn2_demo_key', DUMMY_KEY);
-    localStorage.setItem('hrzn2_demo_timestamp', Date.now().toString());
-    setDemoKey(DUMMY_KEY);
-    setKeyStatus('ACTIVE');
+  const handleGenerateKey = async () => {
+    setIsGenerating(true);
+    setGenerateError(null);
+    try {
+      const response = await fetch('/api/generate-demo', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+      const data = await response.json();
+      
+      if (data.success && data.key) {
+        localStorage.setItem('hrzn2_demo_key', data.key);
+        localStorage.setItem('hrzn2_demo_timestamp', Date.now().toString());
+        setDemoKey(data.key);
+        setKeyStatus('ACTIVE');
+      } else {
+        setGenerateError(data.error || 'Ошибка при генерации ключа');
+      }
+    } catch (err) {
+      setGenerateError('Ошибка сети. Попробуйте позже.');
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleCopyKey = () => {
-    navigator.clipboard.writeText(demoKey || DUMMY_KEY);
+    navigator.clipboard.writeText(demoKey);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
@@ -374,14 +392,20 @@ export default function Landing() {
               </p>
               <button 
                 onClick={handleGenerateKey}
+                disabled={isGenerating}
                 style={{
                   padding: '18px 40px', borderRadius: '16px', border: 'none',
-                  background: 'linear-gradient(to right, #06b6d4, #9333ea)', color: 'white',
-                  fontSize: '1.2rem', fontWeight: 800, cursor: 'pointer', boxShadow: '0 10px 25px -5px rgba(147, 51, 234, 0.5)', transition: 'transform 0.2s', width: '100%', maxWidth: '350px'
+                  background: isGenerating ? '#475569' : 'linear-gradient(to right, #06b6d4, #9333ea)', color: 'white',
+                  fontSize: '1.2rem', fontWeight: 800, cursor: isGenerating ? 'not-allowed' : 'pointer', boxShadow: isGenerating ? 'none' : '0 10px 25px -5px rgba(147, 51, 234, 0.5)', transition: 'transform 0.2s, background 0.2s', width: '100%', maxWidth: '350px'
                 }}
               >
-                Сгенерировать ключ доступа
+                {isGenerating ? 'Генерация...' : 'Сгенерировать ключ доступа'}
               </button>
+              {generateError && (
+                <p style={{ color: '#fca5a5', marginTop: '1rem', fontWeight: 500 }}>
+                  {generateError}
+                </p>
+              )}
             </>
           )}
 
