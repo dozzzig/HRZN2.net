@@ -128,7 +128,11 @@ async function tryGET(candidate) {
     console.log('\n=== РЕЖИМ API-ТОКЕНА (Bearer) ===');
     if (apiToken) {
         console.log('PANEL_API_TOKEN задан — тестируем обход CSRF через Bearer.');
-        const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` };
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiToken}`,
+            'X-Requested-With': 'XMLHttpRequest',
+        };
         const uuid = (require('crypto').randomUUID)();
         const email = `diag_${String(Date.now()).slice(-6)}`;
         const payload = {
