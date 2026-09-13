@@ -158,9 +158,27 @@ class XrayService {
         params.append('password', (process.env.PANEL_PASSWORD || '').trim());
 
         const url = basePath ? `${basePath}/login` : '/login';
+
+        // Новые версии 3x-ui требуют CSRF-токен при login (иначе 403).
+        // 1) получаем токен через GET /csrf-token (или из мета-тега страницы);
+        // 2) шлём login с заголовком X-CSRF-Token.
+        let csrfToken = '';
+        let csrfCookie = '';
+        try {
+            const csrfResp = await this._getCsrfToken(basePath);
+            csrfToken = csrfResp.token;
+            csrfCookie = csrfResp.cookie;
+        } catch (err) {
+            // старые версии панели — CSRF может отсутствовать, тогда пробуем без него
+        }
+
+        const headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+        if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+        if (csrfCookie) headers['Cookie'] = csrfCookie;
+
         let response;
         try {
-            response = await this.client.post(url, params);
+            response = await this.client.post(url, params, { headers });
         } catch (err) {
             if (err.response) {
                 return { ok: false, msg: `HTTP ${err.response.status} на login (${url}): ${JSON.stringify(err.response.data || {}).slice(0, 150)}` };
@@ -177,6 +195,36 @@ class XrayService {
         }
         const msg = response.data && response.data.msg ? response.data.msg : JSON.stringify(response.data || {}).slice(0, 150);
         return { ok: false, msg: `login rejected (${url}): ${msg}` };
+    }
+
+    /** Возвращает CSRF-токен и связанную cookie (если есть). */
+    async _getCsrfToken(basePath) {
+        const csrfUrl = basePath ? `${basePath}/csrf-token` : '/csrf-token';
+        try {
+            const resp = await this.client.get(csrfUrl, { timeout: 8000 });
+            const token = resp.data && resp.data.obj ? String(resp.data.obj) : '';
+            const cookie = this._extractCookie(resp);
+            if (token) return { token, cookie };
+        } catch (err) {
+            // /csrf-token может отсутствовать на старых версиях — падаем ниже
+        }
+
+        // Fallback: парсим meta-тег на странице логина
+        const pageUrl = basePath || '/';
+        const pageResp = await this.client.get(pageUrl, { timeout: 8000 });
+        const html = typeof pageResp.data === 'string' ? pageResp.data : '';
+        const m = html.match(/<meta\s+name=["']csrf-token["']\s+content=["']([^"']+)/i);
+        if (m && m[1]) return { token: m[1], cookie: this._extractCookie(pageResp) };
+
+        throw new Error('CSRF-токен не найден');
+    }
+
+    _extractCookie(resp) {
+        const setCookie = resp.headers && resp.headers['set-cookie'];
+        if (setCookie && setCookie.length > 0) {
+            return setCookie.map((c) => c.split(';')[0]).join('; ');
+        }
+        return '';
     }
 
     /** Определяем рабочий webBasePath (env-префикс → пустой путь). */

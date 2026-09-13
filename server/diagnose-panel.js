@@ -43,12 +43,63 @@ const client = axios.create({
     timeout: 10000,
 });
 
-async function tryLogin(candidate) {
-    const url = candidate ? `${candidate}/login` : '/login';
+async function getCsrf(basePath) {
+    const url = basePath ? `${basePath}/csrf-token` : '/csrf-token';
     try {
-        const bodyTxt = new URLSearchParams();
-        bodyTxt.append('username', username);
-        bodyTxt.append('password', password);
+        const resp = await client.get(url, { timeout: 8000 });
+        const token = resp.data && resp.data.obj ? String(resp.data.obj) : '';
+        const cookie = (resp.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
+        if (token) return { token, cookie };
+    } catch (e) { /* fallback ниже */ }
+    try {
+        const pageUrl = basePath || '/';
+        const resp = await client.get(pageUrl, { timeout: 8000 });
+        const html = typeof resp.data === 'string' ? resp.data : '';
+        const m = html.match(/<meta\s+name=["']csrf-token["']\s+content=["']([^"']+)/i);
+        const cookie = (resp.headers['set-cookie'] || []).map((c) => c.split(';')[0]).join('; ');
+        if (m && m[1]) return { token: m[1], cookie };
+    } catch (e) { /* нет CSRF */ }
+    return { token: '', cookie: '' };
+}
+
+async function tryLoginWithCsrf(candidate) {
+    const url = candidate ? `${candidate}/login` : '/login';
+    const bodyTxt = new URLSearchParams();
+    bodyTxt.append('username', username);
+    bodyTxt.append('password', password);
+
+    // Без CSRF
+    try {
+        const resp = await client.post(url, bodyTxt);
+        const snippet = JSON.stringify(resp.data || {}).slice(0, 160);
+        return `[POST ${url} (без CSRF)] -> ${resp.status} (success=${resp.data ? resp.data.success : '?'}) тело: ${snippet}`;
+    } catch (err) {
+        const st = err.response ? err.response.status : 'сеть';
+        const body = err.response ? JSON.stringify(err.response.data || {}).slice(0, 160) : (err.code || err.message);
+        // Пробуем с CSRF
+        let csrf = '';
+        try { csrf = await getCsrf(candidate); } catch (e) { csrf = { token: '', cookie: '' }; }
+        const headers = {};
+        if (csrf.token) headers['X-CSRF-Token'] = csrf.token;
+        if (csrf.cookie) headers['Cookie'] = csrf.cookie;
+        try {
+            const resp2 = await client.post(url, bodyTxt, { headers });
+            const snippet = JSON.stringify(resp2.data || {}).slice(0, 160);
+            return `[POST ${url}] без CSRF -> ${st}; С CSRF -> ${resp2.status} (success=${resp2.data ? resp2.data.success : '?'}) тело: ${snippet}`;
+        } catch (err2) {
+            const st2 = err2.response ? err2.response.status : 'сеть';
+            const body2 = err2.response ? JSON.stringify(err2.response.data || {}).slice(0, 160) : (err2.code || err2.message);
+            return `[POST ${url}] без CSRF -> ${st} (${body}); С CSRF -> ${st2} (${body2})`;
+        }
+    }
+}
+
+async function tryLoginWithoutCsrf(candidate) {
+    const url = candidate ? `${candidate}/login` : '/login';
+    const bodyTxt = new URLSearchParams();
+    bodyTxt.append('username', username);
+    bodyTxt.append('password', password);
+    try {
         const resp = await client.post(url, bodyTxt);
         const snippet = JSON.stringify(resp.data || {}).slice(0, 160);
         return `[POST ${url}] -> ${resp.status} (success=${resp.data ? resp.data.success : '?'}) тело: ${snippet}`;
@@ -82,7 +133,7 @@ async function tryGET(candidate) {
     const unique = [...new Set(candidates)];
 
     for (const c of unique) {
-        console.log(await tryLogin(c));
+        console.log(await tryLoginWithCsrf(c));
     }
 
     console.log('\n=== ПРОВЕРКА БАЗОВЫХ СТРАНИЦ ===');
