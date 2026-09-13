@@ -162,12 +162,16 @@ async function tryGET(candidate) {
                 totalGB: 0,
                 expiryTime: Date.now() + 2 * 3600 * 1000,
                 enable: true,
-                tgId: '',
+                tgId: 0,
                 subId: `sub_${email}`,
                 comment: 'diag',
                 reset: 0,
             }
         };
+        {
+            // Тоже для session-режима ниже (если используется)
+            /* noop */
+        }
         try {
             const resp = await client.post(
                 envBase ? `${envBase}/panel/api/clients/add` : '/panel/api/clients/add',
@@ -241,7 +245,7 @@ async function tryGET(candidate) {
             totalGB: 0,
             expiryTime: Date.now() + 2 * 3600 * 1000,
             enable: true,
-            tgId: '',
+            tgId: 0,
             subId: `sub_${email}`,
             comment: 'diag',
             reset: 0,

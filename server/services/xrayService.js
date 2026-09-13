@@ -418,6 +418,7 @@ class XrayService {
 
         const clientUuid = uuidv4();
         const devicePrefix = (deviceId || 'anon').replace(/[^a-zA-Z0-9]/g, '').slice(0, 8) || 'anon';
+        const tgIdNum = this._parseTgId(tgId);
         const email = tgId
             ? `web_${devicePrefix}_${tgId.replace(/[^a-zA-Z0-9_@]/g, '').slice(0, 24)}`
             : `web_${devicePrefix}_${Date.now()}`;
@@ -435,7 +436,7 @@ class XrayService {
                     totalGB: 0,
                     expiryTime: expiryMs,
                     enable: true,
-                    tgId: tgId || '',
+                    tgId: tgIdNum,
                     subId: `sub_${email}`,
                     comment: 'Web Demo 2h',
                     reset: 0,
@@ -474,6 +475,17 @@ class XrayService {
         }
 
         return link;
+    }
+
+    /**
+     * Панель 3x-ui требует tgId как число (int64), а не строку.
+     * Принимаем @username или числовой ID; конвертируем в число или 0.
+     */
+    _parseTgId(tgId) {
+        if (!tgId) return 0;
+        const cleaned = String(tgId).trim().replace(/^@/, '');
+        const num = Number(cleaned);
+        return Number.isFinite(num) ? num : 0;
     }
 
     _buildLink(clientId) {
