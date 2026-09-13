@@ -430,7 +430,7 @@ class XrayService {
                 inboundIds: [this.inboundId],
                 client: {
                     id: clientUuid,
-                    flow: '',
+                    flow: 'xtls-rprx-vision',
                     email,
                     limitIp: 0,
                     totalGB: 0,
@@ -491,6 +491,7 @@ class XrayService {
     _buildLink(clientId) {
         const paramsDict = {
             encryption: 'none',
+            flow: 'xtls-rprx-vision',
             fp: this.cache.fp,
             pbk: this.cache.pbk,
             security: 'reality',
