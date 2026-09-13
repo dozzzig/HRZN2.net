@@ -58,9 +58,11 @@ class XrayService {
             },
         });
 
-        // CSRF-токен сессии (новые версии 3x-ui требуют его на каждый не-GET запрос)
+        // CSRF-токен сессии (новые версии 3x-ui требуют его на каждый не-GET запрос).
+        // Берётся из авторизованного ответа панели (header X-CSRF-Token или cookie x-ui-csrf).
         this.csrfToken = '';
         this.csrfCookie = '';
+        this.sessionCookie = null;
 
         // Автоподстановка cookie к запросам (сессия + csrf cookie)
         this.client.interceptors.request.use((config) => {
@@ -196,21 +198,53 @@ class XrayService {
             if (setCookie && setCookie.length > 0) {
                 this.sessionCookie = setCookie[0].split(';')[0];
             }
-            // После логина сессия изменилась — получаем CSRF-токен свежеавторизованной сессии
-            try {
-                const csrfResp = await this._getCsrfToken(basePath);
-                this.csrfToken = csrfResp.token;
-                this.csrfCookie = csrfResp.cookie || this.csrfCookie;
-            } catch (csrfErr) {
-                // Если токен не получились (старые панели) — продолжим без него
-            }
+            this._applySessionFromResponse(response);
             return { ok: true };
         }
         const msg = response.data && response.data.msg ? response.data.msg : JSON.stringify(response.data || {}).slice(0, 150);
         return { ok: false, msg: `login rejected (${url}): ${msg}` };
     }
 
-    /** Возвращает CSRF-токен и связанную cookie (если есть). */
+    /** Применяет клиентскую сессию + CSRF из ответа панели (headers set-cookie / X-CSRF-Token). */
+    _applySessionFromResponse(resp) {
+        if (!resp || !resp.headers) return;
+        const h = resp.headers;
+
+        // Обновляем session cookie из set-cookie (последний сессионный cookie)
+        if (h['set-cookie'] && h['set-cookie'].length) {
+            const cookies = h['set-cookie'].map((c) => c.split(';')[0]).filter(Boolean);
+            for (const c of cookies) {
+                if (c.toLowerCase().startsWith('session=')) {
+                    this.sessionCookie = c;
+                }
+            }
+            // CSRF cookie, если панель выставляет отдельно (x-ui-csrf)
+            const csrfC = cookies.find((c) => c.toLowerCase().startsWith('x-ui-csrf='));
+            if (csrfC) {
+                this.csrfCookie = csrfC;
+                this.csrfToken = csrfC.split('=').slice(1).join('=') || this.csrfToken;
+            }
+        }
+        // Header X-CSRF-Token — самый надёжный источник
+        if (h['x-csrf-token']) {
+            this.csrfToken = String(h['x-csrf-token']).trim();
+        }
+    }
+
+    /** Выполняет авторизованный GET и перехватывает свежий CSRF-токен сессии. */
+    async _refreshCsrfAfterLogin() {
+        try {
+            const resp = await this.client.get(this._path(`/panel/api/inbounds/get/${this.inboundId}`), { timeout: 10000 });
+            this._applySessionFromResponse(resp);
+            if (this.csrfToken) {
+                console.log('[xray] CSRF-токен авторизованной сессии получен.');
+                return true;
+            }
+        } catch (err) {
+            // некритично
+        }
+        return Boolean(this.csrfToken);
+    }
     async _getCsrfToken(basePath) {
         const csrfUrl = basePath ? `${basePath}/csrf-token` : '/csrf-token';
         try {
@@ -268,6 +302,8 @@ class XrayService {
         if (this.apiToken) return true;
         const { ok, msg } = await this._postLogin(this.basePath);
         if (!ok) throw new Error(`3x-ui login failed: ${msg}`);
+        // Получаем CSRF-токен уже авторизованной сессии
+        await this._refreshCsrfAfterLogin();
         console.log('[xray] 3x-ui login successful.');
     }
 
@@ -303,6 +339,9 @@ class XrayService {
                 data: body,
                 headers: Object.keys(headers).length ? headers : undefined,
             });
+
+            // В любом ответе панели может прийти обновлённая cookie/CSRF — сохраняем.
+            this._applySessionFromResponse(response);
 
             const type = response.headers['content-type'] || '';
             if (type.includes('text/html') && !isLogin) {
