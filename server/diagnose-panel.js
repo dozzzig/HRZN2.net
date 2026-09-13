@@ -163,10 +163,20 @@ async function tryGET(candidate) {
                         `proto=${ib.protocol}`,
                         `enable=${ib.enable}`,
                         `flow=${ib.flow || ''}`,
+                        `network=${ss.network || ''}`,
                         `sni=${(realm.serverNames || [])[0] || ''}`,
-                        `sid=${(realm.shortIds || [])[0] || ''}`,
+                        `sid=[${(realm.shortIds || []).join(',')}]`,
+                        `pbk=${inner.publicKey ? String(inner.publicKey).slice(0, 12) + '…' : ''}`,
                     ];
                     console.log('  ' + row.join(' | '));
+                    // Подробно для двух интересующих инбаундов
+                    if (String(ib.id) === '4' || String(ib.id) === '3') {
+                        console.log('    dest=' + (realm.dest || inner.dest || '?'));
+                        console.log('    serverNames=' + JSON.stringify(realm.serverNames || []));
+                        console.log('    shortIds=' + JSON.stringify(realm.shortIds || []));
+                        console.log('    spiderX(serverSide)=' + (inner.spiderX || realm.spiderX || '?'));
+                        console.log('    fp=' + (inner.fingerprint || '?'));
+                    }
                 }
             }
         } catch (gErr) {
