@@ -171,11 +171,8 @@ async function tryGET(candidate) {
                     console.log('  ' + row.join(' | '));
                     // Подробно для двух интересующих инбаундов
                     if (String(ib.id) === '4' || String(ib.id) === '3') {
-                        console.log('    dest=' + (realm.dest || inner.dest || '?'));
-                        console.log('    serverNames=' + JSON.stringify(realm.serverNames || []));
-                        console.log('    shortIds=' + JSON.stringify(realm.shortIds || []));
-                        console.log('    spiderX(serverSide)=' + (inner.spiderX || realm.spiderX || '?'));
-                        console.log('    fp=' + (inner.fingerprint || '?'));
+                        console.log('    --- streamSettings (полный) ---');
+                        console.log('    ' + JSON.stringify(ss).slice(0, 900));
                     }
                 }
             }
