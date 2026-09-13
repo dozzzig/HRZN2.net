@@ -66,6 +66,10 @@ class XrayService {
 
         // Автоподстановка cookie к запросам (сессия + csrf cookie)
         this.client.interceptors.request.use((config) => {
+            if (this.apiToken) {
+                config.headers['Authorization'] = `Bearer ${this.apiToken}`;
+                return config;
+            }
             const cookies = [this.sessionCookie, this.csrfCookie].filter(Boolean).join('; ');
             if (cookies) config.headers['Cookie'] = cookies;
             return config;
