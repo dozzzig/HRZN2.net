@@ -125,6 +125,48 @@ async function tryGET(candidate) {
 }
 
 (async () => {
+    console.log('\n=== РЕЖИМ API-ТОКЕНА (Bearer) ===');
+    if (apiToken) {
+        console.log('PANEL_API_TOKEN задан — тестируем обход CSRF через Bearer.');
+        const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiToken}` };
+        const uuid = (require('crypto').randomUUID)();
+        const email = `diag_${String(Date.now()).slice(-6)}`;
+        const payload = {
+            inboundIds: [inboundId],
+            client: {
+                id: uuid,
+                flow: '',
+                email,
+                limitIp: 0,
+                totalGB: 0,
+                expiryTime: Date.now() + 2 * 3600 * 1000,
+                enable: true,
+                tgId: '',
+                subId: `sub_${email}`,
+                comment: 'diag',
+                reset: 0,
+            }
+        };
+        try {
+            const resp = await client.post(
+                envBase ? `${envBase}/panel/api/clients/add` : '/panel/api/clients/add',
+                payload,
+                { headers }
+            );
+            const snippet = JSON.stringify(resp.data || {}).slice(0, 200);
+            console.log(`[Bearer POST clients/add] -> ${resp.status} (success=${resp.data ? resp.data.success : '?'}) тело: ${snippet}`);
+            if (resp.data && resp.data.success) console.log('✅ Bearer-токен работает — панель принимает клиентов!');
+        } catch (err) {
+            const st = err.response ? err.response.status : 'сеть';
+            const body = err.response ? JSON.stringify(err.response.data || {}).slice(0, 200) : (err.code || err.message);
+            console.log(`[Bearer POST clients/add] -> ${st} тело: ${body}`);
+            console.log('Если здесь 403 — токен неверный/неактивный. Создай новый в панели: Settings → Security → API Tokens.');
+        }
+        console.log('\nВывод: установи PANEL_API_TOKEN в server/.env и перезапусти сервис.');
+        process.exit(0);
+    }
+    console.log('PANEL_API_TOKEN не задан. Создай API-токен в панели 3x-ui (Settings → Security → API Tokens)\nи пропиши его в server/.env → PANEL_API_TOKEN=...  Это обходит CSRF.');
+
     console.log('\n=== ПРОБУЕМ ВАРИАНТЫ ПУТИ ===');
     const candidates = [];
     if (envBase) candidates.push(envBase);
