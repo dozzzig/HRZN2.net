@@ -1,69 +1,163 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Apple, Smartphone, Monitor, Copy, Check } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
+import { Apple, Smartphone, Monitor, Copy, Check, ChevronDown, Zap, ShieldCheck, Server, Globe, X } from 'lucide-react';
 import { useStore } from '../store/useStore';
-import { fetchVpnKey } from '../services/vpnApi';
 
+// ---------------------------------------------------------------------------
+// Константы
+// ---------------------------------------------------------------------------
+const DEMO_TTL_MS = 2 * 60 * 60 * 1000; // 2 часа
+const BOT_USERNAME = 'HRZN2_bot';
+
+// Тексты инструкций для трёх платформ
+const INSTRUCTIONS = {
+  ios: {
+    app: 'Happ Proxy',
+    store: 'https://apps.apple.com/us/app/happ-proxy-utility/id6504287215?l=ru',
+    storeLabel: 'Скачать в App Store',
+    steps: [
+      'Установите приложение Happ Proxy.',
+      'Нажмите кнопку ниже и получите стартовый ключ на 2 часа.',
+      'Скопируйте ключ, вставьте в приложение и подключитесь.',
+    ],
+    color: 'cyan',
+  },
+  android: {
+    app: 'Happ Proxy',
+    store: 'https://play.google.com/store/apps/details?id=com.happproxy&hl=ru',
+    storeLabel: 'Скачать в Google Play',
+    steps: [
+      'Установите приложение Happ Proxy.',
+      'Нажмите кнопку ниже и получите стартовый ключ на 2 часа.',
+      'Скопируйте ключ, вставьте в приложение и подключитесь.',
+    ],
+    color: 'violet',
+  },
+  pc: {
+    app: 'v2rayN (Windows) / V2RayXS (macOS)',
+    store: null,
+    storeLabel: undefined,
+    steps: [
+      'Установите приложение для вашей платформы (Windows или Mac).',
+      'Нажмите кнопку ниже и получите стартовый ключ на 2 часа.',
+      'Вставьте ключ в приложение и подключитесь.',
+    ],
+    color: 'cyan',
+  },
+};
+
+const FAQ = [
+  {
+    q: 'Что я получаю бесплатно?',
+    a: 'Одноразовый демо-ключ на 2 часа. Этого хватит, чтобы проверить скорость и стабильность сервиса — без регистрации и банковской карты.',
+  },
+  {
+    q: 'Это безопасно?',
+    a: 'Да. Мы работаем по политике No-Log: не собираем и не храним историю ваших посещений. Для выдачи ключа достаточно одного устройства.',
+  },
+  {
+    q: 'Зачем указывать Telegram?',
+    a: 'Не обязательно. Но если укажете @username в поле при выдаче — пришлём ваш ключ сюда и сможем быстро помочь с настройкой. Без него тоже всё работает.',
+  },
+  {
+    q: 'Что после того, как демо-ключ закончится?',
+    a: 'Перейдите в нашего Telegram-бота и оформите подписку. Оплата картой, Telegram Stars или криптой — доступ активируется мгновенно.',
+  },
+];
+
+// ---------------------------------------------------------------------------
+// Вспомогательный компонент: Telegram-иконка
+// ---------------------------------------------------------------------------
+function TelegramIcon({ size = 24 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM16.64 8.8C16.49 10.48 15.82 14.39 15.48 16.2C15.33 16.97 15.05 17.23 14.78 17.26C14.19 17.31 13.74 16.87 13.17 16.49C12.28 15.9 11.78 15.54 10.92 14.97C9.93 14.31 10.57 13.95 11.15 13.35C11.3 13.2 13.88 10.85 13.93 10.64C13.94 10.61 13.94 10.54 13.9 10.5C13.86 10.46 13.81 10.47 13.77 10.48C13.7 10.5 12.56 11.25 10.35 12.74C10.02 12.96 9.73 13.07 9.47 13.07C9.18 13.07 8.63 12.91 8.22 12.78C7.72 12.62 7.33 12.49 7.37 12.21C7.39 12.07 7.59 11.92 7.97 11.77C11.36 10.3 13.62 9.35 14.75 8.88C15.82 8.44 16.04 8.36 16.19 8.36C16.22 8.36 16.32 8.37 16.38 8.42C16.43 8.46 16.46 8.53 16.47 8.58C16.47 8.64 16.46 8.74 16.44 8.84L16.64 8.8Z" fill="white"/>
+    </svg>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Основной компонент
+// ---------------------------------------------------------------------------
 export default function Landing() {
   const { hasAgreed, setHasAgreed, deviceId } = useStore();
   const [isChecked, setIsChecked] = useState(false);
-  
-  // Состояния для модального окна правил
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('ios');
-  const [isScrolledToBottom, setIsScrolledToBottom] = useState(false);
-  const scrollRef = useRef(null);
+  const [isTermsOpen, setIsTermsOpen] = useState(false);
 
-  // Состояния для выдачи ключа
-  const [keyStatus, setKeyStatus] = useState('NONE'); // 'NONE', 'ACTIVE', 'EXPIRED'
+  // Состояние выдачи ключа
+  const [keyStatus, setKeyStatus] = useState('NONE'); // NONE | ACTIVE | EXPIRED
   const [demoKey, setDemoKey] = useState('');
+  const [expiresAt, setExpiresAt] = useState(0);
   const [isCopied, setIsCopied] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [generateError, setGenerateError] = useState(null);
-  const TIME_LIMIT = 15 * 60 * 1000; // 15 минут
+  const [tgContact, setTgContact] = useState('');
+  const [showTgField, setShowTgField] = useState(false);
+  const [now, setNow] = useState(Date.now());
 
+  const [activeTab, setActiveTab] = useState('ios');
+
+  // -------------------------------------------------------------------------
+  // Восстановление ключа из localStorage
+  // -------------------------------------------------------------------------
   useEffect(() => {
-    const savedKey = localStorage.getItem('hrzn2_demo_key');
-    const savedTime = localStorage.getItem('hrzn2_demo_timestamp');
-
-    if (savedKey && savedTime) {
-      const timeElapsed = Date.now() - parseInt(savedTime, 10);
-      if (timeElapsed < TIME_LIMIT) {
+    const savedKey = localStorage.getItem('hrzn_demo_key');
+    const savedExp = localStorage.getItem('hrzn_demo_expires_at');
+    if (savedKey && savedExp) {
+      const exp = parseInt(savedExp, 10);
+      if (exp > Date.now()) {
         setDemoKey(savedKey);
+        setExpiresAt(exp);
         setKeyStatus('ACTIVE');
       } else {
         setKeyStatus('EXPIRED');
       }
     }
-    
-    // Периодическая проверка таймера, если ключ ACTIVE
-    const interval = setInterval(() => {
-      const currentTime = localStorage.getItem('hrzn2_demo_timestamp');
-      if (currentTime && keyStatus === 'ACTIVE') {
-        if (Date.now() - parseInt(currentTime, 10) >= TIME_LIMIT) {
-          setKeyStatus('EXPIRED');
-        }
-      }
-    }, 10000);
+  }, []);
 
+  // Тикающий таймер для отображения оставшегося времени
+  useEffect(() => {
+    if (keyStatus !== 'ACTIVE') return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
   }, [keyStatus]);
 
+  // Авто-перевод в EXPIRED по истечении времени
+  useEffect(() => {
+    if (keyStatus !== 'ACTIVE') return;
+    const interval = setInterval(() => {
+      if (Date.now() >= expiresAt) {
+        setKeyStatus('EXPIRED');
+        setDemoKey('');
+      }
+    }, 5000);
+    return () => clearInterval(interval);
+  }, [keyStatus, expiresAt]);
+
+  // -------------------------------------------------------------------------
+  // Выдача ключа
+  // -------------------------------------------------------------------------
   const handleGenerateKey = async () => {
     setIsGenerating(true);
     setGenerateError(null);
     try {
       const response = await fetch('/api/generate-demo', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deviceId, tgId: tgContact.trim() || null }),
       });
       const data = await response.json();
-      
+
       if (data.success && data.key) {
-        localStorage.setItem('hrzn2_demo_key', data.key);
-        localStorage.setItem('hrzn2_demo_timestamp', Date.now().toString());
+        const exp = data.expiresAt || Date.now() + DEMO_TTL_MS;
+        localStorage.setItem('hrzn_demo_key', data.key);
+        localStorage.setItem('hrzn_demo_expires_at', String(exp));
         setDemoKey(data.key);
+        setExpiresAt(exp);
         setKeyStatus('ACTIVE');
+      } else if (data.success && data.status === 'already-used') {
+        setKeyStatus('EXPIRED');
       } else {
         setGenerateError(data.error || 'Ошибка при генерации ключа');
       }
@@ -75,447 +169,560 @@ export default function Landing() {
   };
 
   const handleCopyKey = () => {
-    navigator.clipboard.writeText(demoKey);
+    navigator.clipboard?.writeText(demoKey);
     setIsCopied(true);
     setTimeout(() => setIsCopied(false), 2000);
   };
 
-  // Обработчик скролла в модальном окне
-  const handleScroll = (e) => {
-    const { scrollTop, scrollHeight, clientHeight } = e.target;
-    if (scrollHeight - scrollTop - clientHeight <= 5) {
-      setIsScrolledToBottom(true);
-    }
-  };
-
-  // Проверка: если текст полностью помещается на экран без скролла
-  useEffect(() => {
-    if (isModalOpen && scrollRef.current) {
-      const { scrollHeight, clientHeight } = scrollRef.current;
-      if (scrollHeight <= clientHeight + 5) {
-        setIsScrolledToBottom(true);
-      }
-    }
-  }, [isModalOpen]);
-
   const handleAcceptRules = () => {
     setIsChecked(true);
-    setIsModalOpen(false);
+    setIsTermsOpen(false);
   };
 
-  // --- ЭКРАН-ШЛЮЗ (GATE) ---
-  if (!hasAgreed) {
-    return (
-      <div style={{
-        minHeight: '100vh',
-        backgroundColor: '#0a0a0c',
-        display: 'flex', flexDirection: 'column',
-        justifyContent: 'center', alignItems: 'center',
-        color: 'white', padding: '2rem', position: 'relative', overflow: 'hidden'
-      }}>
-        {/* Фоновые свечения */}
-        <div style={{ position: 'absolute', top: '10%', left: '50%', transform: 'translateX(-50%)', width: '600px', height: '600px', background: 'radial-gradient(circle, rgba(34, 211, 238, 0.05) 0%, rgba(0,0,0,0) 70%)', pointerEvents: 'none' }}></div>
-        
-        <motion.div 
-          initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6, ease: 'easeOut' }}
-          style={{ maxWidth: '440px', width: '100%', textAlign: 'center', zIndex: 10 }}
-        >
-          <h1 style={{ 
-            fontSize: 'clamp(3rem, 10vw, 4.5rem)', fontWeight: 950, lineHeight: 1, marginBottom: '1rem',
-            background: 'linear-gradient(to right, #22d3ee, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', letterSpacing: '-2px'
-          }}>
-            HRZN2<br/>NETWORK
-          </h1>
-          <p style={{ color: '#94a3b8', fontSize: '1.2rem', marginBottom: '3rem', fontWeight: 500 }}>Анонимный доступ за гранью горизонтов.</p>
-
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', textAlign: 'left', marginBottom: '2.5rem', padding: '1.25rem', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <input 
-              type="checkbox" checked={isChecked} disabled readOnly
-              style={{ marginTop: '4px', width: '24px', height: '24px', accentColor: '#a855f7', cursor: 'not-allowed', flexShrink: 0, opacity: isChecked ? 1 : 0.5 }}
-            />
-            <label style={{ fontSize: '0.9rem', color: '#cbd5e1', lineHeight: 1.5 }}>
-              Я принимаю <span style={{ color: '#22d3ee', textDecoration: 'underline', cursor: 'pointer' }} onClick={() => setIsModalOpen(true)}>Правила сервиса и Пользовательское соглашение</span>
-            </label>
-          </div>
-
-          <button 
-            disabled={!isChecked} onClick={() => setHasAgreed(true)}
-            style={{
-              width: '100%', padding: '18px', borderRadius: '16px', border: 'none',
-              background: isChecked ? 'linear-gradient(to right, #06b6d4, #9333ea)' : '#1e293b',
-              color: isChecked ? 'white' : '#64748b', fontSize: '1.15rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '1px',
-              cursor: isChecked ? 'pointer' : 'not-allowed', transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)', boxShadow: isChecked ? '0 10px 25px -5px rgba(147, 51, 234, 0.4)' : 'none'
-            }}
-          >
-            Продолжить
-          </button>
-        </motion.div>
-
-        {/* МОДАЛЬНОЕ ОКНО ПРАВИЛ */}
-        <AnimatePresence>
-          {isModalOpen && (
-            <motion.div 
-              key="modal-overlay" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setIsModalOpen(false)}
-              style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(8px)', zIndex: 50, display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '1rem' }}
-            >
-              <motion.div 
-                initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} onClick={(e) => e.stopPropagation()}
-                style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '24px', width: '100%', maxWidth: '700px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}
-              >
-                <div style={{ padding: '1.5rem', borderBottom: '1px solid #1e293b', background: 'rgba(255,255,255,0.02)' }}>
-                  <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: 'white', margin: 0 }}>Пользовательское соглашение и Политика конфиденциальности</h2>
-                </div>
-                
-                <div ref={scrollRef} onScroll={handleScroll} style={{ padding: '1.5rem', overflowY: 'auto', flex: 1, color: '#cbd5e1', fontSize: '0.95rem', lineHeight: 1.6 }}>
-                  <h4 style={{ color: '#22d3ee', fontSize: '1.1rem', marginBottom: '0.5rem' }}>1. Общие положения и Предмет Оферты</h4>
-                  <p style={{ marginBottom: '1rem' }}>Настоящий документ является публичной Офертой. Сервис «HRZN2 NETWORK» предоставляет услуги доступа к виртуальной частной сети (VPN) через Telegram-бота и Web-приложение по принципу «как есть».</p>
-                  <p style={{ marginBottom: '1.5rem' }}>Исполнитель обязуется предоставить доступ к VPN, а Пользователь – оплатить его. Мы стремимся к максимальной стабильности, но не гарантируем 100% аптайм в случае форс-мажорных обстоятельств или глобальных блокировок со стороны магистральных провайдеров. Сервис не аффилирован с Telegram FZ-LLC.</p>
-
-                  <h4 style={{ color: '#22d3ee', fontSize: '1.1rem', marginBottom: '0.5rem' }}>2. Политика отсутствия логов (No-Log Policy) и Конфиденциальность</h4>
-                  <p style={{ marginBottom: '0.5rem' }}>Мы уважаем вашу анонимность. HRZN2 NETWORK работает по строгой политике No-Log.</p>
-                  <ul style={{ paddingLeft: '1.5rem', marginBottom: '1.5rem', listStyleType: 'disc' }}>
-                    <li style={{ marginBottom: '0.5rem' }}>Мы не собираем, не храним и не передаем третьим лицам историю ваших посещений, DNS-запросы, реальные IP-адреса или метаданные трафика.</li>
-                    <li style={{ marginBottom: '0.5rem' }}>Мы не требуем ввода номера телефона или электронной почты для использования Web-версии. На наших серверах хранится только сгенерированный анонимный Device-ID (или ваш Telegram ID, если вы используете бота), а также статус подписки, необходимые для выдачи ключа.</li>
-                    <li style={{ marginBottom: '0.5rem' }}>Обработка данных осуществляется исключительно для предоставления доступа к сервису. Хранение осуществляется не дольше, чем этого требуют цели обработки.</li>
-                  </ul>
-
-                  <h4 style={{ color: '#22d3ee', fontSize: '1.1rem', marginBottom: '0.5rem' }}>3. Запрещенная деятельность</h4>
-                  <p style={{ marginBottom: '0.5rem' }}>Пользователям строго запрещено использовать ресурсы HRZN2 NETWORK для:</p>
-                  <ul style={{ paddingLeft: '1.5rem', marginBottom: '0.5rem', listStyleType: 'disc' }}>
-                    <li style={{ marginBottom: '0.5rem' }}>Рассылки спама (e-mail, мессенджеры).</li>
-                    <li style={{ marginBottom: '0.5rem' }}>Совершения DDoS-атак и попыток взлома любых ресурсов.</li>
-                    <li style={{ marginBottom: '0.5rem' }}>Распространения вредоносного ПО и фишинга.</li>
-                    <li style={{ marginBottom: '0.5rem' }}>Загрузки и распространения контента, нарушающего международное право (включая детскую порнографию и террористические материалы).</li>
-                    <li style={{ marginBottom: '0.5rem' }}>Доступа к материалам, нарушающим законодательство страны расположения сервера.</li>
-                  </ul>
-                  <p style={{ marginBottom: '1.5rem' }}>При фиксации подобных действий со стороны дата-центров, доступ будет аннулирован без права на возврат средств.</p>
-
-                  <h4 style={{ color: '#22d3ee', fontSize: '1.1rem', marginBottom: '0.5rem' }}>4. Подписки, Оплата и Условия возврата</h4>
-                  <p style={{ marginBottom: '0.5rem' }}>Активация подписки происходит автоматически после подтверждения транзакции в Telegram Stars, Crypto Pay или через фиатные/P2P платежные шлюзы (оплата банковскими картами).</p>
-                  <ul style={{ paddingLeft: '1.5rem', marginBottom: '1.5rem', listStyleType: 'disc' }}>
-                    <li style={{ marginBottom: '0.5rem' }}>Услуга предоставляется на условиях 100% предоплаты.</li>
-                    <li style={{ marginBottom: '0.5rem' }}>После успешной генерации и выдачи VPN-ключа услуга считается оказанной, возврат средств не производится в связи с анонимной природой сервиса. Возврат или перерасчет возможны только при подтвержденных технических сбоях (оплата списана, но услуга не зачислена).</li>
-                    <li style={{ marginBottom: '0.5rem' }}>Демо-режим предоставляется один раз на один аккаунт/устройство. Попытки обхода этого ограничения ведут к блокировке.</li>
-                  </ul>
-
-                  <h4 style={{ color: '#22d3ee', fontSize: '1.1rem', marginBottom: '0.5rem' }}>5. Реферальная программа</h4>
-                  <p style={{ marginBottom: '1.5rem' }}>Бонусные дни за приглашение друзей начисляются только после того, как приглашенный пользователь подтвердит согласие с данными правилами и совершит целевое действие. Злоупотребление реферальной системой (использование ботов, самореферальство) ведет к обнулению бонусного баланса.</p>
-
-                  <h4 style={{ color: '#22d3ee', fontSize: '1.1rem', marginBottom: '0.5rem' }}>6. Ответственность и Разрешение споров</h4>
-                  <p style={{ marginBottom: '1.5rem' }}>Пользователь несет единоличную ответственность за действия, совершенные с использованием его учетной записи и VPN-ключа в рамках HRZN2. Администрация оставляет за собой право приостановить доступ при обнаружении аномальной активности, создающей угрозу стабильности серверов. Стороны освобождаются от ответственности при форс-мажоре (глобальные сбои интернета, блокировки сервисов государственными органами).</p>
-
-                  <h4 style={{ color: '#22d3ee', fontSize: '1.1rem', marginBottom: '0.5rem' }}>7. Техническая поддержка</h4>
-                  <p style={{ marginBottom: '1rem' }}>Все вопросы по работе сервиса, настройке подключения или проблемам с оплатой принимаются через официальную службу поддержки.</p>
-                </div>
-
-                <div style={{ padding: '1.5rem', borderTop: '1px solid #1e293b', background: 'rgba(255,255,255,0.02)' }}>
-                  <button 
-                    disabled={!isScrolledToBottom} onClick={handleAcceptRules}
-                    style={{
-                      width: '100%', padding: '16px', borderRadius: '12px', border: 'none',
-                      background: isScrolledToBottom ? 'linear-gradient(to right, #06b6d4, #9333ea)' : '#1e293b',
-                      color: isScrolledToBottom ? 'white' : '#64748b', fontSize: '1.05rem', fontWeight: 700, cursor: isScrolledToBottom ? 'pointer' : 'not-allowed', transition: 'all 0.3s ease'
-                    }}
-                  >
-                    {isScrolledToBottom ? 'Я прочитал и согласен' : 'Прокрутите текст до конца...'}
-                  </button>
-                </div>
-              </motion.div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    );
+  // -------------------------------------------------------------------------
+  // Таймер обратного отсчёта
+  // -------------------------------------------------------------------------
+  function formatRemaining() {
+    const diff = Math.max(0, expiresAt - now);
+    const h = Math.floor(diff / 3600000);
+    const m = Math.floor((diff % 3600000) / 60000);
+    const s = Math.floor((diff % 60000) / 1000);
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
   }
 
-  // --- ONE-PAGE (ОСНОВНАЯ СТРАНИЦА) ---
+  // -------------------------------------------------------------------------
+  // ШЛЮЗ
+  // -------------------------------------------------------------------------
+  if (!hasAgreed) {
+    return <Gate
+      isChecked={isChecked}
+      setIsChecked={setIsChecked}
+      isTermsOpen={isTermsOpen}
+      setIsTermsOpen={setIsTermsOpen}
+      onAccept={handleAcceptRules}
+      onContinue={() => setHasAgreed(true)}
+    />;
+  }
+
+  const stepsData = INSTRUCTIONS[activeTab];
+  const stepColor = stepsData.color === 'cyan' ? 'text-accent-cyan bg-cyan-400/10' : 'text-accent-violet bg-purple-400/10';
+
   return (
-    <div style={{ backgroundColor: '#0a0a0c', minHeight: '100vh', color: 'white', fontFamily: 'Inter, system-ui, sans-serif' }}>
-      
+    <div className="min-h-screen bg-bg text-white font-sans">
       {/* HEADER */}
-      <header style={{
-        position: 'fixed', top: 0, left: 0, right: 0, zIndex: 40,
-        backgroundColor: 'rgba(10, 10, 12, 0.8)', backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(255,255,255,0.05)',
-        padding: '1rem 2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
-      }}>
-        <div style={{ fontSize: '1.5rem', fontWeight: 900, background: 'linear-gradient(to right, #22d3ee, #a855f7)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent', cursor: 'pointer' }} onClick={() => window.scrollTo({top: 0, behavior: 'smooth'})}>
-          HRZN2
-        </div>
-        <nav style={{ display: 'none', gap: '2rem' }}>
-           {/* Скрываем на мобилках, показываем на десктопах через медиа-запросы в CSS. Пока ставим display flex в инлайне для десктопа */}
-        </nav>
-        <div style={{ display: 'flex', gap: '2rem', alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: '1.5rem' }} className="desktop-nav">
-            <a href="#instructions" style={{ color: '#cbd5e1', textDecoration: 'none', fontWeight: 500, transition: 'color 0.2s' }}>Инструкции</a>
-            <a href="#support" style={{ color: '#cbd5e1', textDecoration: 'none', fontWeight: 500, transition: 'color 0.2s' }}>Поддержка</a>
+      <header className="fixed top-0 left-0 right-0 z-40 border-b border-white/5 bg-bg/80 backdrop-blur-xl">
+        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="text-2xl font-black tracking-tight cursor-pointer select-none" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
+            <span className="text-gradient">HRZN2</span>
           </div>
+          <nav className="hidden md:block">
+            <div className="flex items-center gap-6">
+              <a href="#instructions" className="text-slate-400 font-medium hover:text-white transition-colors">Инструкции</a>
+              <a href="#how-it-works" className="text-slate-400 font-medium hover:text-white transition-colors">Как получить</a>
+              <a href="#faq" className="text-slate-400 font-medium hover:text-white transition-colors">FAQ</a>
+              <a href="#support" className="text-slate-400 font-medium hover:text-white transition-colors">Поддержка</a>
+            </div>
+          </nav>
+          <a href="#get-key" className="btn-primary hidden sm:inline-flex !px-5 !py-2.5 !text-sm !font-bold">Получить ключ</a>
         </div>
       </header>
 
-      {/* HERO SECTION */}
-      <section style={{ paddingTop: '160px', paddingBottom: '100px', textAlign: 'center', paddingLeft: '2rem', paddingRight: '2rem', position: 'relative' }}>
-        <div style={{ position: 'absolute', top: '-10%', left: '50%', transform: 'translateX(-50%)', width: '800px', height: '800px', background: 'radial-gradient(circle, rgba(168, 85, 247, 0.1) 0%, rgba(0,0,0,0) 60%)', pointerEvents: 'none', zIndex: 0 }}></div>
-        
-        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }} style={{ position: 'relative', zIndex: 1 }}>
-          <h1 style={{ fontSize: 'clamp(2.5rem, 8vw, 4.5rem)', fontWeight: 900, marginBottom: '1.5rem', lineHeight: 1.1 }}>
-            Свобода за гранью <span style={{ color: '#22d3ee' }}>горизонта.</span>
-          </h1>
-          <p style={{ fontSize: '1.2rem', color: '#94a3b8', maxWidth: '600px', margin: '0 auto 2.5rem', lineHeight: 1.6 }}>
-            Безопасный доступ к Telegram и всему интернету без ограничений. Быстро, просто и всегда онлайн. Никаких обязательных регистраций.
+      {/* HERO */}
+      <section className="relative pt-40 pb-24 px-6 text-center overflow-hidden">
+        <div className="glow-purple top-[-20%] left-1/2 -translate-x-1/2 w-[800px] h-[800px]"
+          style={{ background: 'radial-gradient(circle, rgba(168, 85, 247, 0.12) 0%, rgba(0,0,0,0) 60%)' }} />
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, ease: 'easeOut' }}
+          className="relative z-10 max-w-3xl mx-auto"
+        >
+          <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-sm text-slate-300 mb-6">
+            <Zap size={14} className="text-accent-cyan" />
+            Проверьте бесплатно за 2 часа — без регистрации
           </p>
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
-            <button 
-              onClick={() => document.getElementById('instructions').scrollIntoView({ behavior: 'smooth' })}
-              style={{
-                padding: '16px 36px', borderRadius: '12px', border: 'none',
-                background: 'linear-gradient(to right, #06b6d4, #9333ea)', color: 'white',
-                fontSize: '1.1rem', fontWeight: 800, cursor: 'pointer', boxShadow: '0 10px 25px -5px rgba(147, 51, 234, 0.4)', transition: 'transform 0.2s'
-              }}
-            >
-              Получить доступ
-            </button>
+          <h1 className="text-5xl md:text-7xl font-black leading-[1.05] mb-6 tracking-tight">
+            Свобода за гранью <span className="text-gradient">горизонта.</span>
+          </h1>
+          <p className="text-lg md:text-xl text-slate-400 max-w-xl mx-auto mb-10 leading-relaxed">
+            Безопасный доступ к Telegram и всему интернету, когда всё остальное заблокировано.
+            Стабильный сервис, который работает без остановок.
+          </p>
+          <div className="flex flex-col items-center gap-4">
+            <a href="#get-key" className="btn-primary !text-xl !px-12 !py-5">Получить демо-ключ</a>
+            <p className="text-sm text-slate-500">
+              Без регистрации · Без банковской карты · Ключ за 5 секунд
+            </p>
           </div>
         </motion.div>
       </section>
 
-      {/* INSTRUCTIONS SECTION */}
-      <section id="instructions" style={{ padding: '80px 2rem', maxWidth: '800px', margin: '0 auto', scrollMarginTop: '80px' }}>
-        <h2 style={{ fontSize: 'clamp(2rem, 5vw, 2.5rem)', marginBottom: '3rem', fontWeight: 900, textAlign: 'center' }}>
-          Настройка в <span style={{ color: '#22d3ee' }}>3 клика</span>
-        </h2>
-        
-        <div style={{ display: 'flex', justifyContent: 'center', gap: '1rem', marginBottom: '2.5rem', flexWrap: 'wrap' }}>
-          <button 
-            onClick={() => setActiveTab('ios')}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', borderRadius: '16px', background: activeTab === 'ios' ? 'rgba(34, 211, 238, 0.15)' : '#0f172a', border: `1px solid ${activeTab === 'ios' ? '#22d3ee' : '#1e293b'}`, color: activeTab === 'ios' ? '#22d3ee' : '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
-          >
-            <Apple size={20} /> Apple iOS
-          </button>
-          <button 
-            onClick={() => setActiveTab('android')}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', borderRadius: '16px', background: activeTab === 'android' ? 'rgba(168, 85, 247, 0.15)' : '#0f172a', border: `1px solid ${activeTab === 'android' ? '#a855f7' : '#1e293b'}`, color: activeTab === 'android' ? '#a855f7' : '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
-          >
-            <Smartphone size={20} /> Android
-          </button>
-          <button 
-            onClick={() => setActiveTab('pc')}
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '12px 24px', borderRadius: '16px', background: activeTab === 'pc' ? 'rgba(34, 211, 238, 0.15)' : '#0f172a', border: `1px solid ${activeTab === 'pc' ? '#22d3ee' : '#1e293b'}`, color: activeTab === 'pc' ? '#22d3ee' : '#64748b', fontWeight: 700, cursor: 'pointer', transition: 'all 0.2s' }}
-          >
-            <Monitor size={20} /> Windows / Mac
-          </button>
-        </div>
-
-        <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '24px', padding: '2.5rem', minHeight: '300px' }}>
-          <AnimatePresence mode="wait">
-            {activeTab === 'ios' && (
-              <motion.div key="ios" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>1</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Установите приложение</strong> Happ Proxy.</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>2</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Нажмите кнопку внизу</strong>, чтобы получить стартовый 15-минутный ключ, и скопируйте его.</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>3</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Вставьте ключ в приложение</strong> и подключитесь. Как только будете в свободной сети, вернитесь сюда и перейдите в Telegram для активации подписки.</div>
-                  </div>
-                </div>
-                <div style={{ marginTop: '2.5rem', display: 'flex', justifyContent: 'center' }}>
-                  <a href="https://apps.apple.com/us/app/happ-proxy-utility/id6504287215?l=ru" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'white', color: 'black', padding: '12px 24px', borderRadius: '12px', textDecoration: 'none', fontWeight: 700 }}>
-                    <Apple size={20} /> Скачать в App Store
-                  </a>
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'android' && (
-              <motion.div key="android" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
-                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>1</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Установите приложение</strong> Happ Proxy.</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>2</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Нажмите кнопку внизу</strong>, чтобы получить стартовый 15-минутный ключ, и скопируйте его.</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(168, 85, 247, 0.1)', color: '#a855f7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>3</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Вставьте ключ в приложение</strong> и подключитесь. Как только будете в свободной сети, вернитесь сюда и перейдите в Telegram для активации подписки.</div>
-                  </div>
-                </div>
-                <div style={{ marginTop: '2.5rem', display: 'flex', justifyContent: 'center', gap: '1rem', flexWrap: 'wrap' }}>
-                  <a href="https://play.google.com/store/apps/details?id=com.happproxy&hl=ru" target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: '10px', background: '#22c55e', color: 'white', padding: '12px 24px', borderRadius: '12px', textDecoration: 'none', fontWeight: 700 }}>
-                    <Smartphone size={20} /> Скачать в Google Play
-                  </a>
-                </div>
-              </motion.div>
-            )}
-
-            {activeTab === 'pc' && (
-              <motion.div key="pc" initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }}>
-                <p style={{ color: '#94a3b8', marginBottom: '2rem', textAlign: 'center', fontSize: '1.05rem' }}>Для <strong>Windows</strong> скачайте v2rayN, для <strong>macOS</strong> используйте V2RayXS или Vfox.</p>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem', maxWidth: '500px', margin: '0 auto' }}>
-                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>1</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Установите приложение</strong> для вашей платформы (Windows или Mac).</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>2</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Нажмите кнопку внизу</strong>, чтобы получить стартовый 15-минутный ключ, и скопируйте его.</div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '1rem', alignItems: 'flex-start' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, flexShrink: 0 }}>3</div>
-                    <div style={{ color: '#94a3b8' }}><strong style={{ color: 'white' }}>Вставьте ключ в приложение</strong> и подключитесь. Как только будете в свободной сети, вернитесь сюда и перейдите в Telegram для активации подписки.</div>
-                  </div>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </div>
-      </section>
-      {/* CALL TO ACTION SECTION */}
-      <section id="get-key" style={{ padding: '40px 2rem 80px', maxWidth: '800px', margin: '0 auto', textAlign: 'center' }}>
-        <div style={{ background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(147, 51, 234, 0.1))', border: '1px solid rgba(168, 85, 247, 0.3)', borderRadius: '24px', padding: '3rem 2rem', boxShadow: '0 10px 40px -10px rgba(168, 85, 247, 0.15)' }}>
-          <h2 style={{ fontSize: 'clamp(1.8rem, 4vw, 2.2rem)', fontWeight: 900, marginBottom: '1rem' }}>
-            Готовы к <span style={{ color: '#a855f7' }}>подключению?</span>
-          </h2>
-          
-          {keyStatus === 'NONE' && (
-            <>
-              <p style={{ color: '#cbd5e1', fontSize: '1.1rem', marginBottom: '2.5rem', maxWidth: '500px', margin: '0 auto 2.5rem' }}>
-                Сгенерируйте ваш стартовый ключ прямо сейчас. Это займет всего секунду.
-              </p>
-              <button 
-                onClick={handleGenerateKey}
-                disabled={isGenerating}
-                style={{
-                  padding: '18px 40px', borderRadius: '16px', border: 'none',
-                  background: isGenerating ? '#475569' : 'linear-gradient(to right, #06b6d4, #9333ea)', color: 'white',
-                  fontSize: '1.2rem', fontWeight: 800, cursor: isGenerating ? 'not-allowed' : 'pointer', boxShadow: isGenerating ? 'none' : '0 10px 25px -5px rgba(147, 51, 234, 0.5)', transition: 'transform 0.2s, background 0.2s', width: '100%', maxWidth: '350px'
-                }}
-              >
-                {isGenerating ? 'Генерация...' : 'Сгенерировать ключ доступа'}
-              </button>
-              {generateError && (
-                <p style={{ color: '#fca5a5', marginTop: '1rem', fontWeight: 500 }}>
-                  {generateError}
-                </p>
-              )}
-            </>
-          )}
-
-          {keyStatus === 'ACTIVE' && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: '450px', margin: '0 auto' }}>
-              <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: '1.5rem' }}>
-                <Check size={32} />
-              </div>
-              <h3 style={{ fontSize: '1.6rem', fontWeight: 900, color: 'white', marginBottom: '1rem', textAlign: 'center' }}>Ваш ключ готов!</h3>
-              
-              <div style={{ width: '100%', position: 'relative', marginBottom: '1.5rem' }}>
-                <input 
-                  type="text" value={demoKey} readOnly
-                  style={{ width: '100%', padding: '16px 50px 16px 16px', borderRadius: '12px', background: 'rgba(0,0,0,0.3)', border: '1px solid #1e293b', color: '#94a3b8', fontSize: '0.9rem', outline: 'none', boxSizing: 'border-box' }}
-                />
-                <button 
-                  onClick={handleCopyKey}
-                  style={{ position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: isCopied ? '#22c55e' : '#a855f7', cursor: 'pointer', padding: '8px' }}
-                >
-                  {isCopied ? <Check size={20} /> : <Copy size={20} />}
-                </button>
-              </div>
-
-              <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '12px', padding: '1rem', marginBottom: '2rem' }}>
-                <p style={{ color: '#fca5a5', fontSize: '0.9rem', lineHeight: 1.5, textAlign: 'center', margin: 0 }}>
-                  <strong>Внимание:</strong> Ключ работает 15 минут. Подключитесь в приложении, а затем нажмите кнопку ниже, чтобы оформить и активировать подписку.
-                </p>
-              </div>
-
-              <a 
-                href="https://t.me/HRZN2_bot"
-                target="_blank" rel="noopener noreferrer"
-                style={{
-                  width: '100%', padding: '16px', borderRadius: '16px', border: 'none',
-                  background: '#2481cc', color: 'white', fontSize: '1.1rem', fontWeight: 700,
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', textDecoration: 'none', transition: 'background 0.2s'
-                }}
-                onMouseOver={(e) => e.currentTarget.style.background = '#1d6fa5'}
-                onMouseOut={(e) => e.currentTarget.style.background = '#2481cc'}
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM16.64 8.8C16.49 10.48 15.82 14.39 15.48 16.2C15.33 16.97 15.05 17.23 14.78 17.26C14.19 17.31 13.74 16.87 13.17 16.49C12.28 15.9 11.78 15.54 10.92 14.97C9.93 14.31 10.57 13.95 11.15 13.35C11.3 13.2 13.88 10.85 13.93 10.64C13.94 10.61 13.94 10.54 13.9 10.5C13.86 10.46 13.81 10.47 13.77 10.48C13.7 10.5 12.56 11.25 10.35 12.74C10.02 12.96 9.73 13.07 9.47 13.07C9.18 13.07 8.63 12.91 8.22 12.78C7.72 12.62 7.33 12.49 7.37 12.21C7.39 12.07 7.59 11.92 7.97 11.77C11.36 10.3 13.62 9.35 14.75 8.88C15.82 8.44 16.04 8.36 16.19 8.36C16.22 8.36 16.32 8.37 16.38 8.42C16.43 8.46 16.46 8.53 16.47 8.58C16.47 8.64 16.46 8.74 16.44 8.84L16.64 8.8Z" fill="white"/>
-                </svg>
-                Активировать подписку в Telegram
-              </a>
-            </div>
-          )}
-
-          {keyStatus === 'EXPIRED' && (
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', maxWidth: '450px', margin: '0 auto' }}>
-              <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.2)', borderRadius: '12px', padding: '1.5rem', marginBottom: '2rem', width: '100%' }}>
-                <p style={{ color: '#fca5a5', fontSize: '1.05rem', lineHeight: 1.5, textAlign: 'center', margin: 0, fontWeight: 500 }}>
-                  Ваш пробный период завершен. Для продолжения работы оформите подписку.
-                </p>
-              </div>
-
-              <a 
-                href="https://t.me/HRZN2_bot"
-                target="_blank" rel="noopener noreferrer"
-                style={{
-                  width: '100%', padding: '16px', borderRadius: '16px', border: 'none',
-                  background: '#2481cc', color: 'white', fontSize: '1.1rem', fontWeight: 700,
-                  cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', textDecoration: 'none', transition: 'background 0.2s'
-                }}
-                onMouseOver={(e) => e.currentTarget.style.background = '#1d6fa5'}
-                onMouseOut={(e) => e.currentTarget.style.background = '#2481cc'}
-              >
-                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 2C6.48 2 2 6.48 2 12C2 17.52 6.48 22 12 22C17.52 22 22 17.52 22 12C22 6.48 17.52 2 12 2ZM16.64 8.8C16.49 10.48 15.82 14.39 15.48 16.2C15.33 16.97 15.05 17.23 14.78 17.26C14.19 17.31 13.74 16.87 13.17 16.49C12.28 15.9 11.78 15.54 10.92 14.97C9.93 14.31 10.57 13.95 11.15 13.35C11.3 13.2 13.88 10.85 13.93 10.64C13.94 10.61 13.94 10.54 13.9 10.5C13.86 10.46 13.81 10.47 13.77 10.48C13.7 10.5 12.56 11.25 10.35 12.74C10.02 12.96 9.73 13.07 9.47 13.07C9.18 13.07 8.63 12.91 8.22 12.78C7.72 12.62 7.33 12.49 7.37 12.21C7.39 12.07 7.59 11.92 7.97 11.77C11.36 10.3 13.62 9.35 14.75 8.88C15.82 8.44 16.04 8.36 16.19 8.36C16.22 8.36 16.32 8.37 16.38 8.42C16.43 8.46 16.46 8.53 16.47 8.58C16.47 8.64 16.46 8.74 16.44 8.84L16.64 8.8Z" fill="white"/>
-                </svg>
-                Активировать подписку в Telegram
-              </a>
-            </div>
-          )}
-        </div>
-      </section>
-
-      {/* FOOTER & SUPPORT */}{/* FOOTER & SUPPORT */}
-      <footer style={{ background: '#0a0a0c', borderTop: '1px solid #1e293b', paddingTop: '4rem', paddingBottom: '2rem', marginTop: '4rem' }}>
-        <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '0 2rem', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2rem' }}>
-          
-          <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
-            <h3 style={{ fontSize: '1.5rem', fontWeight: 900, color: 'white', marginBottom: '0.5rem' }}>Остались вопросы?</h3>
-            <p style={{ color: '#64748b', marginBottom: '1.5rem' }}>Наша поддержка решит их за 5 минут.</p>
-            <a 
-              href="tg://resolve?domain=your_support_account" 
-              target="_blank" rel="noopener noreferrer"
-              style={{
-                display: 'inline-block', padding: '12px 28px', borderRadius: '12px',
-                background: 'rgba(34, 211, 238, 0.1)', color: '#22d3ee', border: '1px solid rgba(34, 211, 238, 0.3)',
-                textDecoration: 'none', fontWeight: 700, transition: 'all 0.2s'
-              }}
+      {/* ДОВЕРИЕ / СТАБИЛЬНОСТЬ */}
+      <section id="how-it-works" className="px-6 pb-24 scroll-mt-24">
+        <div className="max-w-4xl mx-auto">
+          <div className="card p-8 md:p-10 relative overflow-hidden">
+            <div className="glow-purple top-[-100px] right-[-100px] w-[300px] h-[300px]"
+              style={{ background: 'radial-gradient(circle, rgba(34, 211, 238, 0.12) 0%, rgba(0,0,0,0) 60%)' }} />
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-80px' }}
+              transition={{ duration: 0.5 }}
             >
-              Написать в поддержку
-            </a>
+              <div className="flex items-center gap-3 mb-4">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-400/10 text-emerald-400">
+                  <Server size={20} />
+                </div>
+                <h2 className="text-2xl font-extrabold">Сервис, который работает</h2>
+              </div>
+              <p className="text-slate-400 leading-relaxed mb-8 max-w-2xl">
+                Наши серверы работают без перебоев месяцами. Ниже — пример реальной статистики аптайма:
+                вы можете убедиться сами, что HRZN2 не «разовый» сервис, а стабильный оператор доступа.
+              </p>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <StatTile icon={<Server size={18} />} value="99.9%" label="аптайм серверов" />
+                <StatTile icon={<Zap size={18} />} value="× 4" label="выше скорость" />
+                <StatTile icon={<ShieldCheck size={18} />} value="No-Log" label="не храним логи" />
+                <StatTile icon={<Globe size={18} />} value="RU/ЕС/Азия" label="серверы" />
+              </div>
+              <div className="mt-8 rounded-2xl border border-dashed border-slate-700 bg-white/[0.02] p-6 text-center">
+                <p className="text-sm text-slate-500">
+                  Здесь будет скриншот реального аптайма сервера (выданного панелью).
+                </p>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+      </section>
+
+      {/* ИНСТРУКЦИИ */}
+      <section id="instructions" className="px-6 pb-24 scroll-mt-24">
+        <div className="max-w-4xl mx-auto">
+          <h2 className="text-3xl md:text-4xl font-black text-center mb-4">Настройка в <span className="text-gradient">3 клика</span></h2>
+          <p className="text-slate-400 text-center max-w-md mx-auto mb-10">
+            11-минутная настройка не нужна. Установите приложение, получите ключ, вставьте его — и вы в сети.
+          </p>
+
+          <div className="flex justify-center gap-3 flex-wrap mb-8">
+            <PlatformTab active={activeTab === 'ios'} onClick={() => setActiveTab('ios')}>
+              <Apple size={18} /> Apple iOS
+            </PlatformTab>
+            <PlatformTab active={activeTab === 'android'} onClick={() => setActiveTab('android')}>
+              <Smartphone size={18} /> Android
+            </PlatformTab>
+            <PlatformTab active={activeTab === 'pc'} onClick={() => setActiveTab('pc')}>
+              <Monitor size={18} /> Windows / Mac
+            </PlatformTab>
           </div>
 
-          <div style={{ width: '100%', height: '1px', background: '#1e293b' }}></div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '1rem', width: '100%' }}>
-            <div style={{ fontWeight: 900, color: '#94a3b8', letterSpacing: '2px', fontSize: '1.2rem' }}>HRZN2 <span style={{ color: '#22d3ee' }}>NETWORK</span></div>
-            <div style={{ display: 'flex', gap: '2rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-              <button onClick={() => setIsModalOpen(true)} style={{ background: 'none', border: 'none', color: '#64748b', cursor: 'pointer', textDecoration: 'underline', fontSize: '0.9rem' }}>Пользовательское соглашение и Политика конфиденциальности</button>
-            </div>
-            <div style={{ color: '#475569', fontSize: '0.85rem', marginTop: '1rem' }}>
-              © {new Date().getFullYear()} HRZN2 Network. Все права защищены.
-            </div>
+          <div className="card p-8 md:p-10">
+            <AnimatePresence mode="wait">
+              <motion.div key={activeTab} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -10 }} transition={{ duration: 0.25 }}>
+                <div className="flex flex-col gap-5">
+                  {stepsData.steps.map((step, i) => (
+                    <div key={i} className="flex gap-4 items-start">
+                      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-extrabold ${stepColor}`}>{i + 1}</div>
+                      <p className="text-slate-400 leading-relaxed">{step}</p>
+                    </div>
+                  ))}
+                </div>
+                {stepsData.store && (
+                  <div className="mt-8 flex justify-center">
+                    <a href={stepsData.store} target="_blank" rel="noopener noreferrer"
+                      className="inline-flex items-center gap-2 rounded-xl bg-white text-black px-6 py-3 font-bold hover:opacity-90 transition-opacity no-underline">
+                      {activeTab === 'ios' ? <Apple size={18} /> : <Smartphone size={18} />} {stepsData.storeLabel}
+                    </a>
+                  </div>
+                )}
+              </motion.div>
+            </AnimatePresence>
           </div>
+        </div>
+      </section>
+
+      {/* CTA-БЛОК ВЫДАЧИ КЛЮЧА */}
+      <section id="get-key" className="px-6 pb-24 scroll-mt-24">
+        <div className="max-w-2xl mx-auto">
+          <div className="rounded-3xl border border-purple-400/30 p-8 md:p-12 text-center"
+            style={{ background: 'linear-gradient(135deg, rgba(6, 182, 212, 0.1), rgba(147, 51, 234, 0.12))', boxShadow: '0 10px 40px -10px rgba(168, 85, 247, 0.2)' }}>
+            <h2 className="text-3xl font-black mb-3">Готовы проверить?</h2>
+            <p className="text-slate-400 mb-8 max-w-md mx-auto">
+              Нажмите одну кнопку — ключ на 2 часа получите прямо здесь. Без карт и регистраций.
+            </p>
+
+            {keyStatus === 'NONE' && (
+              <>
+                <button onClick={handleGenerateKey} disabled={isGenerating} className="btn-primary !w-full !max-w-sm !py-5 !text-xl">
+                  {isGenerating ? 'Генерация ключа...' : 'Получить демо-ключ'}
+                </button>
+
+                {/* Необязательное поле Telegram — привлечение в бота */}
+                <div className="mt-6 max-w-sm mx-auto">
+                  <button type="button" onClick={() => setShowTgField(v => !v)}
+                    className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-accent-cyan transition-colors">
+                    {showTgField ? <ChevronDown size={16} className="rotate-180" /> : <ChevronDown size={16} />}
+                    Указать Telegram (необязательно)
+                  </button>
+                  <AnimatePresence>
+                    {showTgField && (
+                      <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
+                        <input
+                          type="text"
+                          id="tg-contact"
+                          name="tgContact"
+                          value={tgContact}
+                          onChange={(e) => setTgContact(e.target.value)}
+                          placeholder="@username или числовой ID"
+                          className="mt-3 w-full rounded-xl bg-black/30 border border-slate-700 px-4 py-3 text-white outline-none focus:border-accent-violet transition-colors"
+                        />
+                        <p className="mt-2 text-xs text-slate-500 text-left">
+                          Пришлём ваш ключ сюда и поможем с настройкой. Можно пропустить.
+                        </p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                {generateError && (
+                  <p className="mt-4 text-red-300 font-medium">{generateError}</p>
+                )}
+              </>
+            )}
+
+            {keyStatus === 'ACTIVE' && (
+              <div className="flex flex-col items-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-cyan-400/10 text-accent-cyan mb-4">
+                  <Check size={32} />
+                </div>
+                <h3 className="text-2xl font-extrabold mb-1">Ваш ключ готов!</h3>
+                <p className="text-sm text-slate-400 mb-6">Ключ активен ещё {formatRemaining()}</p>
+
+                <div className="w-full max-w-sm relative mb-5">
+                  <input
+                    type="text"
+                    value={demoKey}
+                    readOnly
+                    onFocus={(e) => e.target.select()}
+                    className="w-full rounded-xl bg-black/30 border border-slate-700 px-4 py-3 pr-12 text-slate-400 text-sm outline-none"
+                  />
+                  <button onClick={handleCopyKey} className="absolute right-2 top-1/2 -translate-y-1/2 p-2 text-accent-violet hover:text-white transition-colors" aria-label="Скопировать ключ">
+                    {isCopied ? <Check size={20} className="text-emerald-400" /> : <Copy size={20} />}
+                  </button>
+                </div>
+
+                <div className="rounded-2xl bg-white p-4 mb-6">
+                  <QRCodeSVG value={demoKey} size={180} level="M" />
+                  <p className="text-xs text-slate-400 mt-2">Отсканируйте камерой — ключ добавится сам</p>
+                </div>
+
+                <div className="w-full max-w-sm rounded-xl border border-red-400/20 bg-red-500/10 px-4 py-3 mb-6">
+                  <p className="text-sm text-red-200 leading-relaxed">
+                    <strong>Внимание:</strong> ключ одноразовый и работает <strong>2 часа</strong>.
+                    Подключитесь в приложении, а затем перейдите в Telegram, чтобы оформить подписку.
+                  </p>
+                </div>
+
+                {/* Переход в бота сразу после ключа */}
+                <a href={`https://t.me/${BOT_USERNAME}`} target="_blank" rel="noopener noreferrer" className="btn-tg !w-full !max-w-sm">
+                  <TelegramIcon size={22} />
+                  Активировать подписку в Telegram
+                </a>
+                <p className="text-xs text-slate-500 mt-3">Подписка от 100 ₽/мес · Оплата картой, Stars или криптой</p>
+              </div>
+            )}
+
+            {keyStatus === 'EXPIRED' && (
+              <div className="flex flex-col items-center max-w-sm mx-auto">
+                <div className="w-full rounded-xl border border-red-400/20 bg-red-500/10 px-5 py-4 mb-6">
+                  <p className="text-red-200 font-medium">Ваш демо-ключ завершился. Продолжите в Telegram-боте.</p>
+                </div>
+                <a href={`https://t.me/${BOT_USERNAME}`} target="_blank" rel="noopener noreferrer" className="btn-tg !w-full">
+                  <TelegramIcon size={22} />
+                  Оформить подписку в Telegram
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      {/* ПРЕИМУЩЕСТВА */}
+      <BenefitSection />
+
+      {/* FAQ */}
+      <section id="faq" className="px-6 pb-24 scroll-mt-24">
+        <div className="max-w-2xl mx-auto">
+          <h2 className="text-3xl font-black text-center mb-10">Частые вопросы</h2>
+          <div className="flex flex-col gap-3">
+            {FAQ.map((item) => <FaqItem key={item.q} q={item.q} a={item.a} />)}
+          </div>
+        </div>
+      </section>
+
+      {/* ФИНАЛЬНЫЙ CTA */}
+      <section id="support" className="px-6 pb-28 scroll-mt-24">
+        <div className="max-w-2xl mx-auto text-center">
+          <h2 className="text-3xl md:text-4xl font-black mb-4">
+            Стабильная сеть <span className="text-gradient">за гранью горизонта</span>
+          </h2>
+          <p className="text-slate-400 mb-8 max-w-md mx-auto">
+            Проверьте бесплатно прямо сейчас — 2 часа на знакомство.
+          </p>
+          <a href={`https://t.me/${BOT_USERNAME}`} target="_blank" rel="noopener noreferrer" className="btn-tg !w-full !max-w-sm !text-lg">
+            <TelegramIcon size={22} />
+            Начать в Telegram
+          </a>
+          <p className="text-xs text-slate-500 mt-6">
+            Вопросы по настройке — в наш бот: @{BOT_USERNAME}
+          </p>
+        </div>
+      </section>
+
+      {/* ФУТЕР */}
+      <footer className="border-t border-slate-800 py-10">
+        <div className="max-w-4xl mx-auto px-6 flex flex-col items-center gap-4">
+          <div className="text-lg font-black tracking-[2px] text-slate-400">
+            HRZN2 <span className="text-accent-cyan">NETWORK</span>
+          </div>
+          <button onClick={() => setIsTermsOpen(true)} className="text-sm text-slate-500 underline hover:text-slate-300 transition-colors">
+            Пользовательское соглашение и Политика конфиденциальности
+          </button>
+          <div className="text-sm text-slate-600">© {new Date().getFullYear()} HRZN2 Network. Все права защищены.</div>
         </div>
       </footer>
+
+      {/* Модалка соглашения */}
+      <TermsModal isOpen={isTermsOpen} onClose={() => setIsTermsOpen(false)} />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Шлюз
+// ---------------------------------------------------------------------------
+function Gate({ isChecked, setIsChecked, isTermsOpen, setIsTermsOpen, onAccept, onContinue }) {
+  return (
+    <div className="min-h-screen bg-bg text-white flex items-center justify-center px-6 py-16 relative overflow-hidden">
+      <div className="glow-purple top-[5%] left-1/2 -translate-x-1/2 w-[600px] h-[600px]"
+        style={{ background: 'radial-gradient(circle, rgba(34, 211, 238, 0.06) 0%, rgba(0,0,0,0) 70%)' }} />
+
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, ease: 'easeOut' }}
+        className="relative z-10 max-w-md w-full text-center"
+      >
+        <h1 className="text-6xl font-black leading-none mb-4 tracking-tight text-gradient">HRZN2<br />NETWORK</h1>
+        <p className="text-slate-400 text-lg font-medium mb-10">Анонимный доступ за гранью горизонтов.</p>
+
+        <label className="flex items-start gap-4 text-left rounded-2xl border border-white/5 bg-white/5 p-5 cursor-pointer transition-colors hover:bg-white/[0.07] mb-6">
+          <input
+            type="checkbox"
+            checked={isChecked}
+            onChange={(e) => setIsChecked(e.target.checked)}
+            className="mt-1 h-5 w-5 shrink-0 accent-violet-600 cursor-pointer"
+          />
+          <span className="text-sm text-slate-300 leading-relaxed">
+            Я принимаю{' '}
+            <button type="button" onClick={(e) => { e.preventDefault(); setIsTermsOpen(true); }}
+              className="inline text-accent-cyan underline hover:text-accent-violet transition-colors">
+              Правила сервиса и Пользовательское соглашение
+            </button>
+          </span>
+        </label>
+
+        <button onClick={onContinue} disabled={!isChecked} className="btn-primary !w-full !py-4 !text-lg !uppercase !tracking-wide">
+          Продолжить
+        </button>
+      </motion.div>
+
+      <TermsModal isOpen={isTermsOpen} onClose={() => setIsTermsOpen(false)} onAccept={onAccept} showAccept />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Модальное окно соглашения (без принудительного скролла)
+// ---------------------------------------------------------------------------
+function TermsModal({ isOpen, onClose, onAccept, showAccept }) {
+  const scrollerRef = useRef(null);
+  const [scrolled, setScrolled] = useState(false);
+
+  const handleScroll = (e) => {
+    const { scrollTop, scrollHeight, clientHeight } = e.target;
+    if (scrollHeight - scrollTop - clientHeight <= 5) setScrolled(true);
+  };
+
+  useEffect(() => {
+    if (isOpen && scrollerRef.current) {
+      const { scrollHeight, clientHeight } = scrollerRef.current;
+      if (scrollHeight <= clientHeight + 5) setScrolled(true);
+      else setScrolled(false);
+    }
+  }, [isOpen]);
+
+  return (
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          key="terms-overlay"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          onClick={onClose}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+        >
+          <motion.div
+            initial={{ scale: 0.95, y: 20 }}
+            animate={{ scale: 1, y: 0 }}
+            exit={{ scale: 0.95, y: 20 }}
+            onClick={(e) => e.stopPropagation()}
+            className="card flex max-h-[85vh] w-full max-w-[700px] flex-col overflow-hidden"
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 bg-white/[0.02] px-6 py-4">
+              <h2 className="text-lg font-extrabold">Соглашение и Политика конфиденциальности</h2>
+              <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors" aria-label="Закрыть">
+                <X size={20} />
+              </button>
+            </div>
+
+            <div ref={scrollerRef} onScroll={handleScroll} className="z-10 flex-1 overflow-y-auto px-6 py-5 text-sm text-slate-300 leading-relaxed">
+              <TermsContent />
+            </div>
+
+            {showAccept && (
+              <div className="border-t border-slate-800 bg-white/[0.02] px-6 py-4">
+                <button onClick={onAccept} disabled={!scrolled} className={`btn-primary !w-full ${scrolled ? '' : '!bg-slate-800 !text-slate-500'}`}>
+                  {scrolled ? 'Я прочитал и согласен' : 'Прочитайте текст до конца'}
+                </button>
+              </div>
+            )}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
+  );
+}
+
+function TermsContent() {
+  return (
+    <>
+      <h4 className="text-accent-cyan font-bold mb-2">1. Общие положения</h4>
+      <p className="mb-4">Сервис «HRZN2 NETWORK» предоставляет услуги доступа к виртуальной частной сети (VPN) через Telegram-бота и Web-приложение по принципу «как есть». Пользоваться сервисом можно в объёме, разрешённом законодательством страны нахождения сервера.</p>
+
+      <h4 className="text-accent-cyan font-bold mb-2">2. No-Log Policy</h4>
+      <p className="mb-2">Мы не собираем, не храним и не передаём третьим лицам историю посещений, DNS-запросы, реальные IP или метаданные трафика.</p>
+      <ul className="mb-4 list-disc pl-5">
+        <li className="mb-1">Не требуем телефон или e-mail для Web-версии.</li>
+        <li className="mb-1">Храним только анонимный Device-ID (или ваш Telegram ID) и статус подписки, необходимые для выдачи ключа.</li>
+        <li>Данные удаляются, когда перестают быть нужны для целей обработки.</li>
+      </ul>
+
+      <h4 className="text-accent-cyan font-bold mb-2">3. Запрещённая деятельность</h4>
+      <p className="mb-2">Запрещено использовать ресурсы сервиса для:</p>
+      <ul className="mb-4 list-disc pl-5">
+        <li className="mb-1">рассылки спама;</li>
+        <li className="mb-1">DDoS-атак и попыток взлома;</li>
+        <li className="mb-1">распространения вредоносного ПО и фишинга;</li>
+        <li>доступа к материалам, нарушающим законодательство страны сервера.</li>
+      </ul>
+      <p className="mb-4">При фиксации подобных действий доступ аннулируется без возврата средств.</p>
+
+      <h4 className="text-accent-cyan font-bold mb-2">4. Подписка и возврат</h4>
+      <p className="mb-2">Оплата: картой, Telegram Stars, криптой. Услуга — 100% предоплата. После выдачи ключа услуга считается оказанной; возврат — только при подтверждённом техническом сбое.</p>
+      <p className="mb-4">Демо-режим — один раз на аккаунт/устройство. Обход ограничения ведёт к блокировке.</p>
+
+      <h4 className="text-accent-cyan font-bold mb-2">5. Ответственность</h4>
+      <p className="mb-4">Пользователь несёт ответственность за действия с использованием его ключа. Сервис вправе приостановить доступ при аномальной активности. Стороны освобождаются от ответственности при форс-мажоре.</p>
+
+      <h4 className="text-accent-cyan font-bold mb-2">6. Поддержка</h4>
+      <p className="mb-4">Вопросы по работе, настройке и оплате — через официальную поддержку в Telegram.</p>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Мелкие компоненты
+// ---------------------------------------------------------------------------
+function StatTile({ icon, value, label }) {
+  return (
+    <div className="rounded-2xl border border-slate-800 bg-white/[0.02] p-4 text-center">
+      <div className="mx-auto mb-2 flex h-9 w-9 items-center justify-center rounded-lg bg-white/5 text-accent-cyan">{icon}</div>
+      <div className="text-xl font-extrabold">{value}</div>
+      <div className="text-xs text-slate-500 mt-0.5">{label}</div>
+    </div>
+  );
+}
+
+function PlatformTab({ active, onClick, children }) {
+  return (
+    <button type="button" onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-2xl px-6 py-3 font-bold transition-all duration-200 cursor-pointer ${active ? 'bg-accent-violet/15 border border-accent-violet text-accent-violet' : 'bg-surface border border-border text-slate-500 hover:text-slate-300'}`}>
+      {children}
+    </button>
+  );
+}
+
+function BenefitSection() {
+  const benefits = [
+    {
+      icon: <Zap size={22} />, title: 'Скорость', text: 'Высокая скорость и низкий пинг — даже в Telegram, даже под блокировками.',
+    },
+    {
+      icon: <Server size={22} />, title: 'Стабильность', text: 'Серверы работают без остановок. Это видно по аптайму — без «разовых» сервисов.',
+    },
+    {
+      icon: <ShieldCheck size={22} />, title: 'No-Log', text: 'Не собираем и не храним ваши логи, IP и историю посещений.',
+    },
+    {
+      icon: <Globe size={22} />, title: 'Все устройства', text: 'iOS, Android, Windows и macOS. Один ключ — на вашей платформе.',
+    },
+  ];
+  return (
+    <section className="px-6 pb-24">
+      <div className="max-w-4xl mx-auto">
+        <h2 className="text-3xl font-black text-center mb-10">Почему HRZN2</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {benefits.map((b, i) => (
+            <motion.div
+              key={b.title}
+              initial={{ opacity: 0, y: 14 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              viewport={{ once: true, margin: '-60px' }}
+              transition={{ duration: 0.4, delay: i * 0.06 }}
+              className="card p-6 flex gap-4"
+            >
+              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-cyan-500/15 to-violet-500/15 text-accent-cyan">
+                {b.icon}
+              </div>
+              <div>
+                <h3 className="text-lg font-bold mb-1">{b.title}</h3>
+                <p className="text-sm text-slate-400 leading-relaxed">{b.text}</p>
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function FaqItem({ q, a }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="card overflow-hidden">
+      <button type="button" onClick={() => setOpen(v => !v)}
+        className="flex w-full items-center justify-between gap-4 px-6 py-4 text-left font-bold hover:bg-white/[0.03] transition-colors cursor-pointer">
+        <span>{q}</span>
+        <ChevronDown size={20} className={`shrink-0 text-slate-400 transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+      </button>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.25 }} className="overflow-hidden">
+            <p className="px-6 pb-5 text-sm text-slate-400 leading-relaxed">{a}</p>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
