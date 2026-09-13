@@ -70,6 +70,15 @@ if command -v ss >/dev/null 2>&1; then
 fi
 
 # ---------------------------------------------------------------- Node.js
+log "Проверяю базовые утилиты (curl, ca-certificates)"
+command -v curl >/dev/null 2>&1 || NO_CURL=1
+command -v apt-get >/dev/null 2>&1 || die "apt-get не найден — это не Ubuntu/Debian?"
+if [ -n "${NO_CURL:-}" ]; then
+  apt-get update -y >/dev/null
+  apt-get install -y curl ca-certificates >/dev/null
+  ok "curl установлен"
+fi
+
 log "Проверяю Node.js"
 if command -v node >/dev/null 2>&1; then
   ok "Node $(node -v)"
@@ -124,8 +133,9 @@ else
   cp .env.example .env
   warn "Создан .env из шаблона. СЕЙЧАС открой его и впиши:"
   warn "  1) DATABASE_URL= — строку Neon"
-  warn "  2) PANEL_URL / PANEL_USERNAME / PANEL_PASSWORD — доступ к 3x-ui (когда дашь)"
-  warn "  3) VPN_SERVER_HOST= — IP/домен VPN-сервера для ссылок (если нужно)"
+  warn "  2) PANEL_URL= — адрес панели 3x-ui на СТАРОМ сервере (пример: https://1.2.3.4:2053)"
+  warn "  3) PANEL_USERNAME / PANEL_PASSWORD — логин панели"
+  warn "  4) VPN_SERVER_HOST= — IP/домен, который клиенты видят в vless-ссылках"
   warn "  Файл: $APP_DIR/server/.env"
 fi
 
@@ -227,6 +237,6 @@ else
 fi
 ok "Локальная проверка: curl http://localhost:${BACKEND_PORT}/api/health"
 ok "Логи службы: journalctl -u $SERVICE -f"
-warn "Панель 3x-ui и Telegram-бот НЕ тронуты."
-warn "Дальше: впиши DATABASE_URL в $APP_DIR/server/.env и перезапусти: sudo systemctl restart $SERVICE"
-warn "Когда дашь доступ к панели — туда же PANEL_URL/PANEL_USERNAME/PANEL_PASSWORD."
+warn "Сайт на этом VPS, панель 3x-ui и бот остались на СТАРОМ сервере — их не трогали."
+warn "Дальше: впиши DATABASE_URL и PANEL_* в $APP_DIR/server/.env и перезапусти: sudo systemctl restart $SERVICE"
+warn "Проверь, что со старого сервера панель доступна новому VPS (порт панели, напр. 2053, разрешён в файрволе)."
