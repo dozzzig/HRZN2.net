@@ -105,9 +105,11 @@ app.get(/^\/(?!api\/).*/, (req, res, next) => {
 app.use((req, res) => {
     if (req.path.startsWith('/api')) {
         res.status(404).json({ success: false, error: 'Not found' });
-    } else {
-        next();
+        return;
     }
+    res.sendFile(path.join(DIST_PATH, 'index.html'), (err) => {
+        if (err) res.status(404).end();
+    });
 });
 
 createStore()
