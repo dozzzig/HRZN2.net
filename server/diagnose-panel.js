@@ -147,7 +147,28 @@ async function tryGET(candidate) {
         try {
             const g = await client.get(getUrl, { headers: { Authorization: `Bearer ${apiToken}`, 'X-Requested-With': 'XMLHttpRequest' } });
             console.log(`[Bearer GET inbounds/list] -> ${g.status} (success=${g.data ? g.data.success : '?'})`);
-            if (g.data && g.data.success) console.log('✅ Токен работает на GET!');
+            if (g.data && g.data.success) {
+                console.log('✅ Токен работает на GET!');
+                console.log('\n=== СПИСОК ИН-БАУНДОВ ПАНЕЛИ ===');
+                const list = g.data.obj || [];
+                for (const ib of list) {
+                    let ss = ib.streamSettings || {};
+                    if (typeof ss === 'string') { try { ss = JSON.parse(ss); } catch { ss = {}; } }
+                    const realm = ss.realitySettings || {};
+                    const inner = realm.settings || {};
+                    const row = [
+                        `id=${ib.id}`,
+                        `rem=${ib.remark}`,
+                        `port=${ib.port}`,
+                        `proto=${ib.protocol}`,
+                        `enable=${ib.enable}`,
+                        `flow=${ib.flow || ''}`,
+                        `sni=${(realm.serverNames || [])[0] || ''}`,
+                        `sid=${(realm.shortIds || [])[0] || ''}`,
+                    ];
+                    console.log('  ' + row.join(' | '));
+                }
+            }
         } catch (gErr) {
             const gs = gErr.response ? gErr.response.status : 'сеть';
             console.log(`[Bearer GET inbounds/list] -> ${gs}`);
