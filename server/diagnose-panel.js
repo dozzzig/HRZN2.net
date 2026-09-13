@@ -24,10 +24,17 @@ const username = (process.env.PANEL_USERNAME || '').trim();
 const password = (process.env.PANEL_PASSWORD || '').trim();
 const apiToken = (process.env.PANEL_API_TOKEN || '').trim();
 
+function maskToken(t) {
+    if (!t) return '';
+    if (t.length <= 10) return `${t.slice(0, 2)}… (короткий, ${t.length} симв.)`;
+    return `${t.slice(0, 4)}…${t.slice(-4)} (${t.length} симв.)`;
+}
+
 console.log('ПАНЕЛЬ:', panelUrl || '(пусто)');
 console.log('BASE PATH (из env):', envBase || '(пусто)');
 console.log('USERNAME задан:', username ? 'да' : 'НЕТ');
 console.log('PASSWORD задан:', password ? 'да' : 'НЕТ');
+console.log('API-ТОКЕН:', apiToken ? maskToken(apiToken) : 'НЕТ');
 
 if (!panelUrl) {
     console.log('\nPANEL_URL пуст — код работает в MOCK-режиме. Диагностика не нужна.');
@@ -135,6 +142,16 @@ async function tryGET(candidate) {
         };
         const uuid = (require('crypto').randomUUID)();
         const email = `diag_${String(Date.now()).slice(-6)}`;
+        // Сначала проверим GET — 401/404 на GET тоже валидная инфа
+        const getUrl = envBase ? `${envBase}/panel/api/inbounds/list` : '/panel/api/inbounds/list';
+        try {
+            const g = await client.get(getUrl, { headers: { Authorization: `Bearer ${apiToken}`, 'X-Requested-With': 'XMLHttpRequest' } });
+            console.log(`[Bearer GET inbounds/list] -> ${g.status} (success=${g.data ? g.data.success : '?'})`);
+            if (g.data && g.data.success) console.log('✅ Токен работает на GET!');
+        } catch (gErr) {
+            const gs = gErr.response ? gErr.response.status : 'сеть';
+            console.log(`[Bearer GET inbounds/list] -> ${gs}`);
+        }
         const payload = {
             inboundIds: [inboundId],
             client: {
@@ -164,7 +181,15 @@ async function tryGET(candidate) {
             const st = err.response ? err.response.status : 'сеть';
             const body = err.response ? JSON.stringify(err.response.data || {}).slice(0, 200) : (err.code || err.message);
             console.log(`[Bearer POST clients/add] -> ${st} тело: ${body}`);
-            console.log('Если здесь 403 — токен неверный/неактивный. Создай новый в панели: Settings → Security → API Tokens.');
+            if (st === 401) {
+                console.log('401 = панель НЕ принимает токен. Причины:');
+                console.log('  1) токен скопирован с ошибкой (лишний пробел/символ/обрезан) — пересоздай и вставь заново;');
+                console.log('  2) токен отозван/истёк в панели;');
+                console.log('  3) в панели не включён доступ по API-токену (Settings → Security).');
+                console.log('  Проверь: вставленный токен ДОЛЖЕН быть ДЛИННЕЕ ~40 символов (см. «API-ТОКЕН» в шапке).');
+            } else {
+                console.log('Если здесь 403/другое — токен неверный/неактивный. Создай новый в панели: Settings → Security → API Tokens.');
+            }
         }
         console.log('\nВывод: установи PANEL_API_TOKEN в server/.env и перезапусти сервис.');
         process.exit(0);
