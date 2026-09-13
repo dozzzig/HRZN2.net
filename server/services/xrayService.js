@@ -58,9 +58,14 @@ class XrayService {
             },
         });
 
-        // Автоподстановка cookie к запросам
+        // CSRF-токен сессии (новые версии 3x-ui требуют его на каждый не-GET запрос)
+        this.csrfToken = '';
+        this.csrfCookie = '';
+
+        // Автоподстановка cookie к запросам (сессия + csrf cookie)
         this.client.interceptors.request.use((config) => {
-            if (this.sessionCookie) config.headers['Cookie'] = this.sessionCookie;
+            const cookies = [this.sessionCookie, this.csrfCookie].filter(Boolean).join('; ');
+            if (cookies) config.headers['Cookie'] = cookies;
             return config;
         });
 
@@ -191,6 +196,14 @@ class XrayService {
             if (setCookie && setCookie.length > 0) {
                 this.sessionCookie = setCookie[0].split(';')[0];
             }
+            // После логина сессия изменилась — получаем CSRF-токен свежеавторизованной сессии
+            try {
+                const csrfResp = await this._getCsrfToken(basePath);
+                this.csrfToken = csrfResp.token;
+                this.csrfCookie = csrfResp.cookie || this.csrfCookie;
+            } catch (csrfErr) {
+                // Если токен не получились (старые панели) — продолжим без него
+            }
             return { ok: true };
         }
         const msg = response.data && response.data.msg ? response.data.msg : JSON.stringify(response.data || {}).slice(0, 150);
@@ -270,17 +283,25 @@ class XrayService {
 
         const url = this._path(path);
         const isLogin = path.endsWith('/login');
+        const isUnsafeMethod = !['GET', 'HEAD', 'OPTIONS'].includes(String(method).toUpperCase());
+
+        // Новые версии 3x-ui требуют X-CSRF-Token на каждый не-GET запрос (кроме login)
+        const headers = {};
+        if (body instanceof URLSearchParams) {
+            headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        } else if (body !== undefined) {
+            headers['Content-Type'] = 'application/json';
+        }
+        if (isUnsafeMethod && !isLogin && this.csrfToken) {
+            headers['X-CSRF-Token'] = this.csrfToken;
+        }
 
         try {
             const response = await this.client.request({
                 method,
                 url,
                 data: body,
-                headers: body instanceof URLSearchParams
-                    ? { 'Content-Type': 'application/x-www-form-urlencoded' }
-                    : body !== undefined
-                        ? { 'Content-Type': 'application/json' }
-                        : undefined,
+                headers: Object.keys(headers).length ? headers : undefined,
             });
 
             const type = response.headers['content-type'] || '';
