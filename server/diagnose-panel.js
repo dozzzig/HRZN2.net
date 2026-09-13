@@ -145,9 +145,16 @@ async function tryGET(candidate) {
     }
     console.log(`\n✅ Рабочий путь: ${workingBase || '(без префикса)'}`);
 
-    // 2. CSRF-токен свежезалогиненной сессии
-    const csrfResp = await getCsrf(workingBase);
-    console.log(`CSRF-токен: ${csrfResp && csrfResp.token ? 'получен' : 'НЕ ПОЛУЧЕН'}`);
+    // 2. CSRF-токен свежезалогиненной сессии — из АВТОРИЗОВАННОГО ответа панели.
+    console.log('\n=== ПЕРЕХВАТ CSRF ИЗ АВТОРИЗОВАННОГО ОТВЕТА ===');
+    // GET к панели со session cookie (иначе токен будет анонимным и панель режнет 403)
+    const csrfFromAuth = await getCsrfFromAuthenticatedGet(workingBase);
+    console.log(
+        csrfFromAuth && csrfFromAuth.token
+            ? `CSRF-токен сессии: получен (ист. ${csrfFromAuth.source})`
+            : `CSRF-токен сессии: НЕ ПОЛУЧЕН`
+    );
+    const csrfResp = csrfFromAuth || { token: '', cookie: '' };
 
     // 3. ПРОВЕРКА create-клиента — самый важный шаг (у нас на нём 403)
     console.log('\n=== ПРОБУЕМ СОЗДАТЬ ТЕСТОВОГО КЛИЕНТА (clients/add) ===');
@@ -171,8 +178,8 @@ async function tryGET(candidate) {
     };
     const addHeaders = { 'Content-Type': 'application/json' };
     if (csrfResp && csrfResp.token) addHeaders['X-CSRF-Token'] = csrfResp.token;
-    const cookieStr = sessionCookie ? sessionCookie : '';
-    if (csrfResp && csrfResp.cookie) addHeaders['Cookie'] = [cookieStr, csrfResp.cookie].filter(Boolean).join('; ');
+    const cookieStr = (sessionCookie || '') + (csrfResp && csrfResp.cookie ? '; ' + csrfResp.cookie : '');
+    if (cookieStr) addHeaders['Cookie'] = cookieStr;
 
     try {
         const resp = await client.post(
@@ -213,6 +220,7 @@ async function tryGET(candidate) {
 
 // --- helper: логин + возврат рабочего пути ---
 let sessionCookie = '';
+let sessionCookies = [];
 async function probeLogin(candidate) {
     const csrf = await getCsrf(candidate).catch(() => ({ token: '', cookie: '' }));
     const body = new URLSearchParams();
@@ -225,11 +233,36 @@ async function probeLogin(candidate) {
         const resp = await client.post(candidate ? `${candidate}/login` : '/login', body, { headers });
         if (resp.status === 200 && resp.data && resp.data.success) {
             const sc = resp.headers['set-cookie'];
-            if (sc && sc.length) sessionCookie = sc[0].split(';')[0];
+            if (sc && sc.length) {
+                sessionCookie = sc[0].split(';')[0];
+                sessionCookies = sc.map((c) => c.split(';')[0]);
+            }
             return { ok: true };
         }
         return { ok: false };
     } catch (err) {
         return { ok: false };
     }
+}
+
+/** Авторизованный GET к панели, из ответа снимаем CSRF (header X-CSRF-Token или cookie x-ui-csrf). */
+async function getCsrfFromAuthenticatedGet(base) {
+    // Составляем полный cookie: все session-cookie после логина
+    const cookieHeader = [
+        ...(sessionCookies || []),
+    ].filter(Boolean).join('; ');
+    const url = base ? `${base}/panel/api/inbounds/get/${inboundId}` : `/panel/api/inbounds/get/${inboundId}`;
+    try {
+        const resp = await client.get(url, { headers: { Cookie: cookieHeader } });
+        const headerToken = resp.headers['x-csrf-token'] ? String(resp.headers['x-csrf-token']).trim() : '';
+        const setCookies = resp.headers['set-cookie'] || [];
+        const csrfC = setCookies.map((c) => c.split(';')[0]).find((c) => c.toLowerCase().startsWith('x-ui-csrf='));
+        const csrfFromCookie = csrfC ? csrfC.split('=').slice(1).join('=') : '';
+        const cookie = setCookies.map((c) => c.split(';')[0]).join('; ');
+        const token = headerToken || csrfFromCookie;
+        if (token) return { token, cookie, source: headerToken ? 'header X-CSRF-Token' : 'cookie x-ui-csrf' };
+    } catch (err) {
+        return { token: '', cookie: '', source: `ОШИБКА ${err.response ? err.response.status : err.message}` };
+    }
+    return { token: '', cookie: '' };
 }
