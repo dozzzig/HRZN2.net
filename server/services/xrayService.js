@@ -146,11 +146,11 @@ class XrayService {
         return this.basePath ? `${this.basePath}${path}` : path;
     }
 
-    /** Аутентификация по конкретному префиксу. Возвращает true/false, бросает при сетевой ошибке. */
-    async _rawLogin(basePath) {
+    /** Общий POST-логин: возвращает (answeredOk, msg). Не бросает на HTTP-ошибках. */
+    async _postLogin(basePath) {
         if (this.apiToken) {
             this.client.defaults.headers.common['Authorization'] = `Bearer ${this.apiToken}`;
-            return true;
+            return { ok: true };
         }
 
         const params = new URLSearchParams();
@@ -158,51 +158,56 @@ class XrayService {
         params.append('password', (process.env.PANEL_PASSWORD || '').trim());
 
         const url = basePath ? `${basePath}/login` : '/login';
-        const resp = await this.client.post(url, params);
+        let response;
+        try {
+            response = await this.client.post(url, params);
+        } catch (err) {
+            if (err.response) {
+                return { ok: false, msg: `HTTP ${err.response.status} на login (${url}): ${JSON.stringify(err.response.data || {}).slice(0, 150)}` };
+            }
+            throw err; // сетевая ошибка — реальная проблема
+        }
 
-        if (resp.data && resp.data.success) {
-            const setCookie = resp.headers['set-cookie'];
+        if (response.data && response.data.success) {
+            const setCookie = response.headers['set-cookie'];
             if (setCookie && setCookie.length > 0) {
                 this.sessionCookie = setCookie[0].split(';')[0];
             }
-            return true;
+            return { ok: true };
         }
-        return false;
+        const msg = response.data && response.data.msg ? response.data.msg : JSON.stringify(response.data || {}).slice(0, 150);
+        return { ok: false, msg: `login rejected (${url}): ${msg}` };
     }
 
-    /**
-     * Автодетект webBasePath: пробуем заданный из env префикс (если он был),
-     * затем пустой путь (как у бота). Сохраняет рабочий вариант.
-     */
+    /** Определяем рабочий webBasePath (env-префикс → пустой путь). */
     async _ensureBasePath() {
         if (this.basePath !== null) return true;
 
         const envBase = (process.env.PANEL_BASE_PATH || '').trim().replace(/\/$/, '');
-        const candidates = [...new Set([envBase, ''].filter(Boolean))];
-        // если с env ничего не задано — всё равно проверяем и базовый путь
-        if (candidates.length === 0) candidates.push('');
+        const candidates = [];
+        if (envBase) candidates.push(envBase);
+        candidates.push('');
 
-        let lastErr = null;
+        let lastMsg = 'нет ответа';
         for (const candidate of candidates) {
-            try {
-                const ok = await this._rawLogin(candidate);
-                if (ok) {
-                    this.basePath = candidate;
-                    console.log(`[xray] webBasePath определён: ${candidate || '(без префикса)'}`);
-                    return true;
-                }
-            } catch (err) {
-                lastErr = err;
+            const { ok, msg } = await this._postLogin(candidate);
+            if (ok) {
+                this.basePath = candidate;
+                console.log(`[xray] webBasePath определён: ${candidate || '(без префикса)'}`);
+                return true;
             }
+            lastMsg = msg;
         }
-        throw new Error(`Не удалось авторизоваться в 3x-ui (basePath=${JSON.stringify(candidates)}): ${lastErr ? lastErr.message : 'нет ответа'}`);
+        throw new Error(`Не удалось авторизоваться в 3x-ui (пробовали ${JSON.stringify(candidates)}). ${lastMsg}`);
     }
 
+    /** Фактическая авторизация (cookie хранится в this.sessionCookie). */
     async _login() {
         await this._ensureBasePath();
         if (this.apiToken) return true;
-        const ok = await this._rawLogin(this.basePath);
-        if (!ok) throw new Error('3x-ui login failed');
+        const { ok, msg } = await this._postLogin(this.basePath);
+        if (!ok) throw new Error(`3x-ui login failed: ${msg}`);
+        console.log('[xray] 3x-ui login successful.');
     }
 
     /**
