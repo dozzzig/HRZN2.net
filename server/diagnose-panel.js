@@ -170,7 +170,7 @@ async function tryGET(candidate) {
                     ];
                     console.log('  ' + row.join(' | '));
                     // Подробно для двух интересующих инбаундов
-                    if (String(ib.id) === '4' || String(ib.id) === '3') {
+                    if (String(ib.id) === '4' || String(ib.id) === '3' || String(ib.id) === '5') {
                         console.log('    --- streamSettings (полный) ---');
                         console.log('    ' + JSON.stringify(ss).slice(0, 900));
                     }
