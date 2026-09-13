@@ -33,18 +33,37 @@ die()  { echo -e "\n\033[1;31m❌ $*\033[0m" >&2; exit 1; }
 # ---------------------------------------------------------------- root
 [ "$(id -u)" = "0" ] || die "Запусти через sudo: sudo bash setup.sh $DOMAIN"
 
-log "Проверяю порты 80/443 (чтобы не сломать панель)"
+SITE_PORT="80"   # финальный (http) или (после certbot) https 443
+
+log "Проверяю порты 80/443 (чтобы НЕ сломать панель 3x-ui и бот)"
+# Ищем кто слушает 80/443 и отдельно — процессы xray/v2ray (VLESS вход панели)
+P443_PROCS=""
+P80_PROCS=""
 if command -v ss >/dev/null 2>&1; then
-  P80=$(ss -ltn | awk '{print $4}' | grep -E ':80$' | head -1 || true)
-  P443=$(ss -ltn | awk '{print $4}' | grep -E ':443$' | head -1 || true)
-  if [ -n "$P80" ] || [ -n "$P443" ]; then
-    warn "Порты 80/443 уже заняты ($P80 $P443). Это может быть веб-интерфейс 3x-ui или другой сайт."
-    warn "Продолжаю, но добавлю наш сайт отдельным конфигом. Если конфликт — скажи мне."
-    read -r -p "Продолжить? [y/N] " ans
-    [[ "$ans" =~ ^[yY]$ ]] || die "Отменено пользователем"
-  else
-    ok "Порты 80/443 свободны"
-  fi
+  P80_PROCS=$(ss -ltnp | grep -E ':80\b' | head -3 || true)
+  P443_PROCS=$(ss -ltnp | grep -E ':443\b' | head -3 || true)
+fi
+
+if [ -n "$P443_PROCS" ]; then
+  warn "Порт 443 уже слушает процесс:"
+  warn "$P443_PROCS"
+  warn "Это почти наверняка VLESS/Reality вход панели 3x-ui (по нему клиенты подключаются к VPN)."
+  warn "ЗАПРЕЩАЮ трогать этот порт — иначе упадут все клиенты VPN."
+  warn ""
+  warn "Сайт развернём на порту 80 (http), HTTPS настроим позже отдельно (без 443)."
+  SITE_PORT="80"
+  read -r -p "Продолжить с сайтом на http://${DOMAIN}:80? [y/N] " ans
+  [[ "$ans" =~ ^[yY]$ ]] || die "Отменено пользователем"
+else
+  ok "Порт 443 свободен — сайт сможет получить HTTPS"
+  SITE_PORT="443"
+fi
+
+if [ -n "$P80_PROCS" ] && [ "$SITE_PORT" = "80" ]; then
+  warn "Порт 80 тоже занят:"
+  warn "$P80_PROCS"
+  warn "nginx не сможет подняться. Останови nginx или другой сервис на 80, либо укажи другой порт."
+  die "Конфликт на порту 80 — решаем вручную"
 fi
 
 log "Проверяю Node.js"
@@ -145,19 +164,27 @@ nginx -t && systemctl reload nginx
 ok "nginx настроен (домен $DOMAIN)"
 
 log "Выпускаю HTTPS-сертификат (Let's Encrypt)"
-if command -v certbot >/dev/null 2>&1; then
-  if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --redirect \
-     --register-unsafely-without-email --no-eff-email ; then
-    ok "HTTPS работает: https://$DOMAIN"
+if [ "$SITE_PORT" = "443" ]; then
+  if command -v certbot >/dev/null 2>&1; then
+    if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --redirect \
+       --register-unsafely-without-email --no-eff-email ; then
+      ok "HTTPS работает: https://$DOMAIN"
+    else
+      warn "certbot не смог выпустить сертификат. Проверь, что DNS домена указывает на IP этого сервера."
+    fi
   else
-    warn "certbot не смог выпустить сертификат. Проверь, что DNS домена указывает на IP этого сервера."
+    warn "certbot не установлен — HTTPS настрой позже"
   fi
 else
-  warn "certbot не установлен — HTTPS настрой позже"
+  warn "Порт 443 занят панелью — HTTPS не выпускаю (чтобы не трогать VPN-вход). Сайт работает по http://$DOMAIN"
 fi
 
 log "══════ ГОТОВО ══════"
-ok "Сайт:     http://$DOMAIN (или https://$DOMAIN)"
+if [ "$SITE_PORT" = "443" ]; then
+  ok "Сайт:     https://$DOMAIN"
+else
+  ok "Сайт:     http://$DOMAIN (HTTPS позже — порт 443 занят панелью)"
+fi
 ok "Health:   curl http://localhost:$BACKEND_PORT/api/health"
 warn "1) Не забудь вписать DATABASE_URL (Neon) в $APP_DIR/server/.env и перезапустить: sudo systemctl restart $SERVICE"
 warn "2) Когда дашь доступ к панели — впиши PANEL_URL/PANEL_USERNAME/PANEL_PASSWORD туда же."
