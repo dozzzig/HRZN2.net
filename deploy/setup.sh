@@ -1,22 +1,24 @@
 #!/usr/bin/env bash
 #
 # HRZN2.net — установка лендинга на VPS (Ubuntu/Debian), вариант A.
-# Фронт (собранный статикой) и бэкенд живут одним Node-процессом,
-# nginx отдаёт их по https + проксирует /api на внутренний порт.
+# Фронт (собранный статикой) и бэкенд живут одним Node-процессом.
+#
+# ОСОБЕННОСТИ этого VPS (проверено):
+#   - порт 443 занят xray (VLESS/Reality вход панели 3x-ui) — ЕГО НЕ ТРОГАЕМ,
+#     иначе упадут все VPN-клиенты; поэтому сайт работает по HTTP на 80;
+#   - nginx уже установлен и слушает 80 — НЕ ставим свой, а добавляем
+#     server_name для нашего домена в существующий nginx.
 #
 # Запуск (на сервере, через Tabby):
 #   sudo bash setup.sh <твой-домен>
 # Пример:
-#   sudo bash setup.sh hrzn2.net
-#
-# Скрипт безопасен и идемпотентен: панель 3x-ui НЕ трогает,
-# только добавляет свой nginx-сайт и свою systemd-службу.
+#   sudo bash setup.sh hrzn2.top
 #
 set -euo pipefail
 
 DOMAIN="${1:-}"
 if [ -z "$DOMAIN" ]; then
-  echo "❌ Укажи домен: sudo bash setup.sh hrzn2.net" >&2
+  echo "❌ Укажи домен: sudo bash setup.sh hrzn2.top" >&2
   exit 1
 fi
 
@@ -24,6 +26,7 @@ APP_DIR="/opt/hrzn2-net"
 GIT_URL="https://github.com/dozzzig/HRZN2.net.git"
 BACKEND_PORT="5000"
 SERVICE="hrzn2-backend"
+NGINX_SITE="hrzn2-net"
 
 log()  { echo -e "\n\033[1;34m==> $*\033[0m"; }
 ok()   { echo -e "\033[1;32m   ✓ $*\033[0m"; }
@@ -33,39 +36,40 @@ die()  { echo -e "\n\033[1;31m❌ $*\033[0m" >&2; exit 1; }
 # ---------------------------------------------------------------- root
 [ "$(id -u)" = "0" ] || die "Запусти через sudo: sudo bash setup.sh $DOMAIN"
 
-SITE_PORT="80"   # финальный (http) или (после certbot) https 443
+# ---------------------------------------------------------------- порты
+log "Проверяю порты 80/443 (чтобы НЕ сломать панель 3x-ui и VPN-клиентов)"
+NGINX_EXISTS=0
+HTTPS_OK=0
 
-log "Проверяю порты 80/443 (чтобы НЕ сломать панель 3x-ui и бот)"
-# Ищем кто слушает 80/443 и отдельно — процессы xray/v2ray (VLESS вход панели)
-P443_PROCS=""
-P80_PROCS=""
 if command -v ss >/dev/null 2>&1; then
-  P80_PROCS=$(ss -ltnp | grep -E ':80\b' | head -3 || true)
-  P443_PROCS=$(ss -ltnp | grep -E ':443\b' | head -3 || true)
+  P80=$(ss -ltnp | grep -E ':80\b' | head -3 || true)
+  P443=$(ss -ltnp | grep -E ':443\b' | head -3 || true)
+
+  if [ -n "$P443" ]; then
+    warn "Порт 443 занят:"
+    warn "$P443"
+    warn "→ Это VPN-вход панели (xray/VLESS). НЕ трогаем. HTTPS на 443 невозможен."
+    warn "→ Сайт развернём по HTTP на порту 80."
+    HTTPS_OK=0
+  else
+    ok "Порт 443 свободен — можно будет HTTPS"
+    HTTPS_OK=1
+  fi
+
+  if echo "$P80" | grep -q "nginx"; then
+    ok "nginx уже работает на 80 — добавим наш сайт в него, ничего не сломав"
+    NGINX_EXISTS=1
+  elif [ -n "$P80" ]; then
+    warn "Порт 80 занят НЕ nginx, а:"
+    warn "$P80"
+    die "Нужно решить конфликт на 80 вручную"
+  else
+    warn "nginx не слушает 80 — установим его"
+    NGINX_EXISTS=0
+  fi
 fi
 
-if [ -n "$P443_PROCS" ]; then
-  warn "Порт 443 уже слушает процесс:"
-  warn "$P443_PROCS"
-  warn "Это почти наверняка VLESS/Reality вход панели 3x-ui (по нему клиенты подключаются к VPN)."
-  warn "ЗАПРЕЩАЮ трогать этот порт — иначе упадут все клиенты VPN."
-  warn ""
-  warn "Сайт развернём на порту 80 (http), HTTPS настроим позже отдельно (без 443)."
-  SITE_PORT="80"
-  read -r -p "Продолжить с сайтом на http://${DOMAIN}:80? [y/N] " ans
-  [[ "$ans" =~ ^[yY]$ ]] || die "Отменено пользователем"
-else
-  ok "Порт 443 свободен — сайт сможет получить HTTPS"
-  SITE_PORT="443"
-fi
-
-if [ -n "$P80_PROCS" ] && [ "$SITE_PORT" = "80" ]; then
-  warn "Порт 80 тоже занят:"
-  warn "$P80_PROCS"
-  warn "nginx не сможет подняться. Останови nginx или другой сервис на 80, либо укажи другой порт."
-  die "Конфликт на порту 80 — решаем вручную"
-fi
-
+# ---------------------------------------------------------------- Node.js
 log "Проверяю Node.js"
 if command -v node >/dev/null 2>&1; then
   ok "Node $(node -v)"
@@ -76,18 +80,22 @@ else
   ok "Node $(node -v)"
 fi
 
-log "Проверяю nginx и certbot"
-if ! command -v nginx >/dev/null 2>&1; then
-  apt-get update -y >/dev/null
-  apt-get install -y nginx git >/dev/null
-  ok "nginx установлен"
-else
-  ok "nginx уже есть"
+# ---------------------------------------------------------------- nginx
+if [ "$NGINX_EXISTS" = "0" ]; then
+  if ! command -v nginx >/dev/null 2>&1; then
+    apt-get update -y >/dev/null
+    apt-get install -y nginx git >/dev/null
+    ok "nginx установлен"
+  fi
 fi
-if ! command -v certbot >/dev/null 2>&1; then
-  apt-get install -y certbot python3-certbot-nginx >/dev/null || warn "certbot не поставился — HTTPS сделаем позже"
+if ! command -v git >/dev/null 2>&1; then
+  apt-get install -y git >/dev/null
+fi
+if [ "$HTTPS_OK" = "1" ] && ! command -v certbot >/dev/null 2>&1; then
+  apt-get install -y certbot python3-certbot-nginx >/dev/null || warn "certbot не поставился"
 fi
 
+# ---------------------------------------------------------------- код
 log "Клонирую/обновляю репозиторий в $APP_DIR"
 if [ -d "$APP_DIR/.git" ]; then
   git -C "$APP_DIR" fetch --all 2>/dev/null || true
@@ -115,13 +123,15 @@ if [ -f ".env" ]; then
 else
   cp .env.example .env
   warn "Создан .env из шаблона. СЕЙЧАС открой его и впиши:"
-  warn "  1) DATABASE_URL= — строку Neon (обязательно после ротации)"
+  warn "  1) DATABASE_URL= — строку Neon"
   warn "  2) PANEL_URL / PANEL_USERNAME / PANEL_PASSWORD — доступ к 3x-ui (когда дашь)"
-  warn "  3) PORT=5000 — оставь"
+  warn "  3) VPN_SERVER_HOST= — IP/домен VPN-сервера для ссылок (если нужно)"
   warn "  Файл: $APP_DIR/server/.env"
 fi
 
+# ---------------------------------------------------------------- systemd
 log "Настраиваю systemd-службу $SERVICE"
+NODE_BIN="$(command -v node)"
 cat > "/etc/systemd/system/${SERVICE}.service" <<UNIT
 [Unit]
 Description=HRZN2.net landing backend
@@ -129,7 +139,7 @@ After=network.target
 
 [Service]
 WorkingDirectory=$APP_DIR/server
-ExecStart=/usr/bin/node index.js
+ExecStart=$NODE_BIN index.js
 Environment=NODE_ENV=production
 Restart=always
 RestartSec=3
@@ -142,8 +152,12 @@ systemctl enable "${SERVICE}" >/dev/null 2>&1 || true
 systemctl restart "${SERVICE}" || warn "Служба не стартовала — проверь server/.env"
 ok "Служба $SERVICE настроена"
 
-log "Настраиваю nginx для $DOMAIN"
-cat > "/etc/nginx/sites-available/hrzn2-net" <<NGINX
+# ---------------------------------------------------------------- nginx-конфиг
+log "Добавляю наш сайт в nginx (domains: $DOMAIN)"
+SITE_CONF="/etc/nginx/sites-available/${NGINX_SITE}"
+mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+
+cat > "$SITE_CONF" <<NGINX
 server {
     listen 80;
     server_name ${DOMAIN};
@@ -158,34 +172,61 @@ server {
     }
 }
 NGINX
-ln -sf "/etc/nginx/sites-available/hrzn2-net" "/etc/nginx/sites-enabled/hrzn2-net"
-rm -f /etc/nginx/sites-enabled/default
-nginx -t && systemctl reload nginx
-ok "nginx настроен (домен $DOMAIN)"
 
-log "Выпускаю HTTPS-сертификат (Let's Encrypt)"
-if [ "$SITE_PORT" = "443" ]; then
+# Включаем наш сайт, НЕ удаляя существующие (default и прочее трогать нельзя)
+ln -sf "$SITE_CONF" "/etc/nginx/sites-enabled/${NGINX_SITE}"
+
+# Проверяем, что nginx 100% понимает все свои конфиги, прежде чем перезагружать
+if nginx -t; then
+  systemctl reload nginx
+  ok "nginx перезагружен, сайт добавлен ($DOMAIN)"
+else
+  warn "nginx -t не прошёл. Снимаю наш конфиг, чтобы не сломать существующие сайты."
+  rm -f "/etc/nginx/sites-enabled/${NGINX_SITE}"
+  die "Конфиг nginx повреждён — посмотри вывод выше"
+fi
+
+# ---------------------------------------------------------------- HTTPS
+if [ "$HTTPS_OK" = "1" ]; then
+  log "Выпускаю HTTPS-сертификат (Let's Encrypt)"
   if command -v certbot >/dev/null 2>&1; then
     if certbot --nginx -d "$DOMAIN" --non-interactive --agree-tos --redirect \
        --register-unsafely-without-email --no-eff-email ; then
       ok "HTTPS работает: https://$DOMAIN"
     else
-      warn "certbot не смог выпустить сертификат. Проверь, что DNS домена указывает на IP этого сервера."
+      warn "certbot не смог выпустить сертификат. Проверь DNS домена."
     fi
   else
-    warn "certbot не установлен — HTTPS настрой позже"
+    warn "certbot не установлен — HTTPS позже"
   fi
 else
-  warn "Порт 443 занят панелью — HTTPS не выпускаю (чтобы не трогать VPN-вход). Сайт работает по http://$DOMAIN"
+  warn "Порт 443 занят xray (VPN) — HTTPS пропущен, сайт на http://$DOMAIN"
+  warn "Для HTTPS позже: перенести VLESS-вход панели на другой порт или отдельный VPS."
 fi
 
-log "══════ ГОТОВО ══════"
-if [ "$SITE_PORT" = "443" ]; then
+# ---------------------------------------------------------------- DNS проверка
+log "Проверяю DNS домена $DOMAIN"
+DNS_IP=$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1 || true)
+SERVER_IP=$(curl -s --max-time 5 https://api.ipify.org || true)
+if [ -n "$DNS_IP" ] && [ -n "$SERVER_IP" ]; then
+  if [ "$DNS_IP" = "$SERVER_IP" ]; then
+    ok "DNS $DOMAIN → $DNS_IP совпадает с этим сервером"
+  else
+    warn "DNS $DOMAIN → $DNS_IP, а этот сервер: $SERVER_IP. Домен не указан на сервер — сайт может не открыться."
+  fi
+else
+  warn "Не удалось проверить DNS (нет сети или домен не резолвится)."
+fi
+
+# ---------------------------------------------------------------- итог
+log "═══════════════════ ГОТОВО ═══════════════════"
+if [ "$HTTPS_OK" = "1" ]; then
   ok "Сайт:     https://$DOMAIN"
 else
-  ok "Сайт:     http://$DOMAIN (HTTPS позже — порт 443 занят панелью)"
+  ok "Сайт:     http://$DOMAIN  (HTTPS недоступен — порт 443 занят VPN-входом)"
 fi
-ok "Health:   curl http://localhost:$BACKEND_PORT/api/health"
-warn "1) Не забудь вписать DATABASE_URL (Neon) в $APP_DIR/server/.env и перезапустить: sudo systemctl restart $SERVICE"
-warn "2) Когда дашь доступ к панели — впиши PANEL_URL/PANEL_USERNAME/PANEL_PASSWORD туда же."
-warn "3) Эта панель 3x-ui здесь же — на сервере. Сайт подключается к ней как localhost."
+ok "Локальная проверка: curl http://localhost:${BACKEND_PORT}/api/health"
+ok "Логи службы: journalctl -u $SERVICE -f"
+warn "Панель 3x-ui и Telegram-бот НЕ тронуты."
+warn "Дальше: впиши DATABASE_URL в $APP_DIR/server/.env и перезапусти: sudo systemctl restart $SERVICE"
+warn "Когда дашь доступ к панели — туда же PANEL_URL/PANEL_USERNAME/PANEL_PASSWORD."
