@@ -75,8 +75,8 @@ app.post('/api/generate-demo', async (req, res) => {
             return res.json({ success: true, status: 'already-used' });
         }
 
-        // 3. Генерируем ключ в панели (сейчас — mock-заглушка)
-        const key = await xrayService.createDemoClient(tgId);
+        // 3. Генерируем ключ в панели (если PANEL_URL не задан — mock-заглушка)
+        const key = await xrayService.createDemoClient(tgId, deviceId);
         const expiresAt = Date.now() + DEMO_TTL_MS;
 
         // 4. Сохраняем ключ в БД
@@ -116,6 +116,18 @@ createStore()
         app.listen(PORT, () => {
             console.log(`HRZN2 backend running on port ${PORT} (xray mode: ${xrayService.isMock ? 'MOCK' : 'REAL'})`);
         });
+
+        // Периодическая очистка просроченных демо-клиентов в панели.
+        // Запускается только в REAL-режиме (при настройке панели).
+        const CLEANUP_MIN = parseInt(process.env.DEMO_CLEANUP_INTERVAL_MIN || '15', 10) || 15;
+        setInterval(async () => {
+            try {
+                await xrayService.cleanupExpiredDemos();
+            } catch (err) {
+                console.warn('[cleanup] Ошибка очистки демо-клиентов:', err.message);
+            }
+        }, CLEANUP_MIN * 60 * 1000);
+        console.log(`[cleanup] Очистка демо-клиентов: каждые ${CLEANUP_MIN} мин`);
     })
     .catch((err) => {
         console.error('[server] Не удалось инициализировать хранилище:', err.message);

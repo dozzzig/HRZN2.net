@@ -285,11 +285,6 @@ export default function Landing() {
                 <StatTile icon={<ShieldCheck size={18} />} value="No-Log" label="не храним логи" />
                 <StatTile icon={<Globe size={18} />} value="RU/ЕС/Азия" label="серверы" />
               </div>
-              <div className="mt-8 rounded-2xl border border-dashed border-slate-700 bg-white/[0.02] p-6 text-center">
-                <p className="text-sm text-slate-500">
-                  Здесь будет скриншот реального аптайма сервера (выданного панелью).
-                </p>
-              </div>
             </motion.div>
           </div>
         </div>
