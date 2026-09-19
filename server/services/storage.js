@@ -43,6 +43,23 @@ class PostgresStore {
                 status      TEXT NOT NULL DEFAULT 'active'
             );
             CREATE INDEX IF NOT EXISTS idx_demo_keys_client ON demo_keys(client_id);
+
+            -- Лиды с сайта (B1): outbox-таблица, бот поллит её и уведомляет админов.
+            -- ВАЖНО: идентичная схема в HRZN2/database.py (миграции бота)
+            CREATE TABLE IF NOT EXISTS site_leads (
+                id          BIGSERIAL   PRIMARY KEY,
+                device_id   TEXT        NOT NULL,
+                tg_id       TEXT,
+                event       TEXT        NOT NULL,
+                referer     TEXT,
+                utm         TEXT,
+                user_agent  TEXT,
+                notified    BOOLEAN     NOT NULL DEFAULT FALSE,
+                created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            );
+            CREATE INDEX IF NOT EXISTS idx_site_leads_unnotified
+                ON site_leads (id)
+                WHERE notified = FALSE;
         `;
         await this.pool.query(schema);
     }
@@ -98,6 +115,22 @@ class PostgresStore {
         await this.pool.query(
             "UPDATE demo_keys SET used = TRUE, status = 'used' WHERE id = $1",
             [keyId]
+        );
+    }
+
+    /** B1: событие лида в outbox-таблицу (бот заберёт и уведомит админов). */
+    async logLeadEvent(deviceId, tgId, event, referer, utm, userAgent) {
+        await this.pool.query(
+            `INSERT INTO site_leads (device_id, tg_id, event, referer, utm, user_agent)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [
+                deviceId,
+                tgId || null,
+                event,
+                referer ? String(referer).slice(0, 300) : null,
+                utm ? String(utm).slice(0, 200) : null,
+                userAgent ? String(userAgent).slice(0, 300) : null,
+            ]
         );
     }
 }
@@ -176,6 +209,11 @@ class MemoryStore {
             key.status = 'used';
         }
     }
+
+    /** B1: в dev-режиме события лидов просто логируются. */
+    async logLeadEvent(deviceId, tgId, event, referer, utm, userAgent) {
+        console.log(`[storage:memory] site_lead event=${event} device=${String(deviceId).slice(0, 8)}… tg=${tgId || '—'} utm=${utm || '—'}`);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +226,12 @@ async function createStore() {
         // Лениво подключаем pg, чтобы dev-режим работал без установленного пакета в edge-случаях
         try {
             const { Pool } = require('pg');
-            const pool = new Pool({ connectionString: databaseUrl, ssl: { rejectUnauthorized: false } });
+            // Neon/прод — SSL обязателен; локальная dev-БД (unix-сокет / sslmode=disable) — без SSL
+            const useSsl = !databaseUrl.includes('sslmode=disable') && !databaseUrl.includes('host=/');
+            const pool = new Pool({
+                connectionString: databaseUrl,
+                ssl: useSsl ? { rejectUnauthorized: false } : false,
+            });
             const store = new PostgresStore(pool);
             await store.init();
             console.log('[storage] Подключено к Neon Postgres.');

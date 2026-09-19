@@ -145,7 +145,11 @@ export default function Landing() {
       const response = await fetch('/api/generate-demo', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ deviceId, tgId: tgContact.trim() || null }),
+        body: JSON.stringify({
+          deviceId,
+          tgId: tgContact.trim() || null,
+          utm: useStore.getState().utm || null,
+        }),
       });
       const data = await response.json();
 

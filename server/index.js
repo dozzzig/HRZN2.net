@@ -37,6 +37,15 @@ app.use(express.json());
 
 let store;
 
+// B1: fire-and-forget запись события лида (сбой логирования не ломает выдачу ключа)
+async function logLead(deviceId, tgId, event, req, utm) {
+    try {
+        await store.logLeadEvent(deviceId, tgId, event, req.headers.referer, utm, req.headers['user-agent']);
+    } catch (err) {
+        console.warn('[leads] Не удалось записать событие:', err.message);
+    }
+}
+
 app.get('/api/health', (req, res) => {
     res.json({ ok: true, mock: xrayService.isMock });
 });
@@ -45,6 +54,7 @@ app.post('/api/generate-demo', async (req, res) => {
     try {
         const deviceId = (req.body && req.body.deviceId) ? String(req.body.deviceId).trim() : '';
         const tgId = (req.body && req.body.tgId && String(req.body.tgId).trim()) ? String(req.body.tgId).trim() : null;
+        const utm = (req.body && req.body.utm) ? String(req.body.utm).slice(0, 200) : null;
 
         // Обязательный deviceId: это наш анонимный идентификатор устройства из localStorage
         if (!deviceId) {
@@ -61,6 +71,9 @@ app.post('/api/generate-demo', async (req, res) => {
         // 2. Одноразовость: если у этого клиента уже был демо-ключ — повторно не выдаём
         const keyCount = await store.getKeyCount(client.id);
         if (keyCount > 0) {
+            // B1: повторный визит — тоже лид-событие (видно в /funnel и в группе)
+            logLead(deviceId, tgId, 'demo_repeat', req, utm);
+
             // Проверяем, нет ли ещё активного (не истёкшего) ключа — вернём его же
             const active = await store.getActiveKey(client.id);
             if (active) {
@@ -81,6 +94,9 @@ app.post('/api/generate-demo', async (req, res) => {
 
         // 4. Сохраняем ключ в БД
         await store.createKey(client.id, key, expiresAt);
+
+        // B1: новый лид — событие в outbox, бот уведомит админов
+        logLead(deviceId, tgId, 'demo_issued', req, utm);
 
         return res.json({
             success: true,

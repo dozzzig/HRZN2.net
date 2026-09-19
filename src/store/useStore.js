@@ -14,6 +14,7 @@ function generateUUID() {
 
 export const useStore = create((set, get) => ({
   deviceId: null,
+  utm: null,
   isTgLinked: false,
   hasAgreed: false,
   subscription: null,
@@ -27,12 +28,19 @@ export const useStore = create((set, get) => ({
       id = generateUUID();
       localStorage.setItem('hrzn_device_id', id);
     }
-    
+
+    // B1: фиксируем query-строку первого визита (utm-метки, источник)
+    let utm = localStorage.getItem('hrzn_utm');
+    if (!utm && typeof window !== 'undefined' && window.location.search) {
+      utm = window.location.search.slice(0, 200);
+      localStorage.setItem('hrzn_utm', utm);
+    }
+
     const linked = localStorage.getItem('hrzn_tg_linked') === 'true';
     const agreed = localStorage.getItem('hrzn_has_agreed') === 'true';
-    
-    set({ deviceId: id, isTgLinked: linked, hasAgreed: agreed });
-    
+
+    set({ deviceId: id, utm, isTgLinked: linked, hasAgreed: agreed });
+
     // Сразу запрашиваем статус по Device-ID
     get().fetchSubscriptionStatus(id);
   },
