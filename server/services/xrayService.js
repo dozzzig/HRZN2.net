@@ -124,12 +124,20 @@ class XrayService {
             const uuid = client.uuid || client.id;
             if (!uuid) continue;
 
+            // v2.2.1: 3x-ui v3 удаляет клиента по EMAIL (modern API);
+            // legacy-роут inbounds/{id}/delClient/{uuid} в v3 возвращает 404.
             try {
-                await this._request('POST', `/panel/api/inbounds/${this.inboundId}/delClient/${uuid}`);
+                await this._request('POST', `/panel/api/clients/del/${encodeURIComponent(email)}`);
                 removed++;
-                console.log(`[xray:cleanup] Удалён просроченный демо-клиент ${email}`);
-            } catch (err) {
-                console.warn(`[xray:cleanup] Не удалось удалить ${email}: ${err.message}`);
+                console.log(`[xray:cleanup] Удалён просроченный демо-клиент ${email} (modern API)`);
+            } catch (modernErr) {
+                try {
+                    await this._request('POST', `/panel/api/inbounds/${this.inboundId}/delClient/${uuid}`);
+                    removed++;
+                    console.log(`[xray:cleanup] Удалён просроченный демо-клиент ${email} (legacy API)`);
+                } catch (err) {
+                    console.warn(`[xray:cleanup] Не удалось удалить ${email}: modern=${modernErr.message} | legacy=${err.message}`);
+                }
             }
         }
 
@@ -397,6 +405,13 @@ class XrayService {
     }
 
     async _getClientByEmail(email) {
+        // v2.2.1: modern API v3 — точечный GET (O(1)); фолбэк — листинг
+        try {
+            const direct = await this._request('GET', `/panel/api/clients/get/${encodeURIComponent(email)}`);
+            if (direct && direct.success && direct.obj) return direct.obj;
+        } catch (err) {
+            // старая панель — фолбэк на листинг
+        }
         const data = await this._request('GET', '/panel/api/clients/list');
         if (!data || !data.success) return null;
         for (const client of data.obj || []) {
