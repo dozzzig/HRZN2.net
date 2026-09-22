@@ -21,6 +21,7 @@
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
+const axios = require('axios');
 require('dotenv').config();
 
 const xrayService = require('./services/xrayService');
@@ -146,6 +147,53 @@ createStore()
             }
         }, CLEANUP_MIN * 60 * 1000);
         console.log(`[cleanup] Очистка демо-клиентов: каждые ${CLEANUP_MIN} мин`);
+
+        // v2.2.2: сторож бота — сайт следит за heartbeat бота в общей БД.
+        // Если бот не обновлял heartbeat дольше BOT_STALE_SEC — алерт.
+        // Доставка алерта: ALARM_BOT_TOKEN + ALARM_CHAT_ID (отдельный «сигнальный»
+        // бот, чтобы не зависеть от основного) или просто console.error.
+        const BOT_STALE_SEC = parseInt(process.env.BOT_STALE_SEC || '900', 10) || 900;
+        const WATCH_INTERVAL_MS = (parseInt(process.env.WATCH_INTERVAL_MIN || '5', 10) || 5) * 60 * 1000;
+        let botWasHealthy = true;
+
+        async function sendAlarm(text) {
+            const token = process.env.ALARM_BOT_TOKEN;
+            const chatId = process.env.ALARM_CHAT_ID;
+            if (!token || !chatId) {
+                console.error('[alarm]', text.replace(/<[^>]+>/g, ''));
+                return;
+            }
+            try {
+                await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+                    chat_id: chatId,
+                    text,
+                    parse_mode: 'HTML',
+                });
+            } catch (e) {
+                console.error('[alarm] Не удалось отправить алерт:', e.message);
+            }
+        }
+
+        setInterval(async () => {
+            try {
+                const age = await store.getBotHeartbeatAgeSec();
+                if (age === null) return; // таблица ещё не создана / dev-режим
+                const healthy = age <= BOT_STALE_SEC;
+                if (botWasHealthy && !healthy) {
+                    await sendAlarm(
+                        `🔴 <b>СБОЙ: Telegram-бот не отвечает</b>\n` +
+                        `heartbeat устарел на ${Math.round(age / 60)} мин (порог ${Math.round(BOT_STALE_SEC / 60)} мин).\n` +
+                        `Проверьте на VPS: <code>systemctl status hrzn2</code>`
+                    );
+                } else if (!botWasHealthy && healthy) {
+                    await sendAlarm('🟢 <b>Восстановлено: Telegram-бот снова на связи</b>');
+                }
+                botWasHealthy = healthy;
+            } catch (err) {
+                console.warn('[watch] Ошибка проверки heartbeat бота:', err.message);
+            }
+        }, WATCH_INTERVAL_MS);
+        console.log(`[watch] Контроль heartbeat бота: каждые ${WATCH_INTERVAL_MS / 60000} мин, порог ${BOT_STALE_SEC}с`);
     })
     .catch((err) => {
         console.error('[server] Не удалось инициализировать хранилище:', err.message);

@@ -133,6 +133,19 @@ class PostgresStore {
             ]
         );
     }
+
+    /** v2.2.2: возраст heartbeat бота в секундах (null — записи/таблицы нет). */
+    async getBotHeartbeatAgeSec() {
+        try {
+            const res = await this.pool.query(
+                'SELECT EXTRACT(EPOCH FROM (now() - ts)) AS age FROM bot_heartbeat WHERE id = 1'
+            );
+            return res.rows[0] ? Number(res.rows[0].age) : null;
+        } catch (err) {
+            // таблица ещё не создана миграцией бота — не ошибка
+            return null;
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +226,11 @@ class MemoryStore {
     /** B1: в dev-режиме события лидов просто логируются. */
     async logLeadEvent(deviceId, tgId, event, referer, utm, userAgent) {
         console.log(`[storage:memory] site_lead event=${event} device=${String(deviceId).slice(0, 8)}… tg=${tgId || '—'} utm=${utm || '—'}`);
+    }
+
+    /** v2.2.2: в dev-режиме heartbeat не отслеживается. */
+    async getBotHeartbeatAgeSec() {
+        return null;
     }
 }
 
