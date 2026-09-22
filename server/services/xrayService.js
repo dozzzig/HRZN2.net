@@ -406,15 +406,29 @@ class XrayService {
 
     async _getClientByEmail(email) {
         // v2.2.1: modern API v3 — точечный GET (O(1)); фолбэк — листинг
+        // v2.2.3: v3 возвращает обёртку obj={client:{...}, inboundIds:[...]} — разворачиваем
         try {
             const direct = await this._request('GET', `/panel/api/clients/get/${encodeURIComponent(email)}`);
-            if (direct && direct.success && direct.obj) return direct.obj;
+            if (direct && direct.success && direct.obj) {
+                const obj = direct.obj;
+                const client = (obj.client && typeof obj.client === 'object') ? obj.client : obj;
+                if (client.uuid || typeof client.id === 'string') {
+                    if (!client.inboundIds && Array.isArray(obj.inboundIds)) {
+                        client.inboundIds = obj.inboundIds;
+                    }
+                    return client;
+                }
+                console.warn('[xray] clients/get вернул неожиданную форму obj — фолбэк на листинг');
+            }
         } catch (err) {
             // старая панель — фолбэк на листинг
         }
         const data = await this._request('GET', '/panel/api/clients/list');
         if (!data || !data.success) return null;
-        for (const client of data.obj || []) {
+        const items = Array.isArray(data.obj)
+            ? data.obj
+            : ((data.obj && (data.obj.clients || data.obj.items)) || []);
+        for (const client of items) {
             if (client.email === email) return client;
         }
         return null;
